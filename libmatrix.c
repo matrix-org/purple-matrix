@@ -1,29 +1,5 @@
 /**
- * purple
- *
- * Purple is the legal property of its developers, whose names are too numerous
- * to list here.  Please refer to the COPYRIGHT file distributed with this
- * source distribution.
- *
- * Nullprpl is a mock protocol plugin for Pidgin and libpurple. You can create
- * accounts with it, sign on and off, add buddies, and send and receive IMs,
- * all without connecting to a server!
- *
- * Beyond that basic functionality, nullprpl supports presence and
- * away/available messages, offline messages, user info, typing notification,
- * privacy allow/block lists, chat rooms, whispering, room lists, and protocol
- * icons and emblems. Notable missing features are file transfer and account
- * registration and authentication.
- *
- * Nullprpl is intended as an example of how to write a libpurple protocol
- * plugin. It doesn't contain networking code or an event loop, but it does
- * demonstrate how to use the libpurple API to do pretty much everything a prpl
- * might need to do.
- *
- * Nullprpl is also a useful tool for hacking on Pidgin, Finch, and other
- * libpurple clients. It's a full-featured protocol plugin, but doesn't depend
- * on an external server, so it's a quick and easy way to exercise test new
- * code. It also allows you to work while you're disconnected.
+ * Matrix plugin for libpurple/Pidgin
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,21 +16,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111-1301  USA
  */
 
+#include "libmatrix.h"
+
 #include <stdarg.h>
 #include <string.h>
 #include <time.h>
 
 #include <glib.h>
-
-/* If you're using this as the basis of a prpl that will be distributed
- * separately from libpurple, remove the internal.h include below and replace
- * it with code to include your own config.h or similar.  If you're going to
- * provide for translation, you'll also need to setup the gettext macros. */
-/* #include "internal.h" */
-#define _(a) (a)
-#define N_(a) (a)
-#define DISPLAY_VERSION "1.0"
-#define PURPLE_WEBSITE "http://pidgin.im"
 
 #include "account.h"
 #include "accountopt.h"
@@ -72,12 +40,11 @@
 #include "version.h"
 
 
-#define NULLPRPL_ID "prpl-null"
-static PurplePlugin *_null_protocol = NULL;
+static PurplePlugin *_matrix_protocol = NULL;
 
-#define NULL_STATUS_ONLINE   "online"
-#define NULL_STATUS_AWAY     "away"
-#define NULL_STATUS_OFFLINE  "offline"
+#define MATRIX_STATUS_ONLINE   "online"
+#define MATRIX_STATUS_AWAY     "away"
+#define MATRIX_STATUS_OFFLINE  "offline"
 
 typedef void (*GcFunc)(PurpleConnection *from,
                        PurpleConnection *to,
@@ -91,7 +58,7 @@ typedef struct {
 
 /*
  * stores offline messages that haven't been delivered yet. maps username
- * (char *) to GList * of GOfflineMessages. initialized in nullprpl_init.
+ * (char *) to GList * of GOfflineMessages. initialized in matrixprpl_init.
  */
 GHashTable* goffline_messages = NULL;
 
@@ -105,26 +72,26 @@ typedef struct {
 /*
  * helpers
  */
-static PurpleConnection *get_nullprpl_gc(const char *username) {
-  PurpleAccount *acct = purple_accounts_find(username, NULLPRPL_ID);
+static PurpleConnection *get_matrixprpl_gc(const char *username) {
+  PurpleAccount *acct = purple_accounts_find(username, PRPL_ID);
   if (acct && purple_account_is_connected(acct))
     return acct->gc;
   else
     return NULL;
 }
 
-static void call_if_nullprpl(gpointer data, gpointer userdata) {
+static void call_if_matrixprpl(gpointer data, gpointer userdata) {
   PurpleConnection *gc = (PurpleConnection *)(data);
   GcFuncData *gcfdata = (GcFuncData *)userdata;
 
-  if (!strcmp(gc->account->protocol_id, NULLPRPL_ID))
+  if (!strcmp(gc->account->protocol_id, PRPL_ID))
     gcfdata->fn(gcfdata->from, gc, gcfdata->userdata);
 }
 
-static void foreach_nullprpl_gc(GcFunc fn, PurpleConnection *from,
+static void foreach_matrixprpl_gc(GcFunc fn, PurpleConnection *from,
                                 gpointer userdata) {
   GcFuncData gcfdata = { fn, from, userdata };
-  g_list_foreach(purple_connections_get_all(), call_if_nullprpl,
+  g_list_foreach(purple_connections_get_all(), call_if_matrixprpl,
                  &gcfdata);
 }
 
@@ -172,15 +139,15 @@ static void discover_status(PurpleConnection *from, PurpleConnection *to,
     const char *status_id = purple_status_get_id(status);
     const char *message = purple_status_get_attr_string(status, "message");
 
-    if (!strcmp(status_id, NULL_STATUS_ONLINE) ||
-        !strcmp(status_id, NULL_STATUS_AWAY) ||
-        !strcmp(status_id, NULL_STATUS_OFFLINE)) {
-      purple_debug_info("nullprpl", "%s sees that %s is %s: %s\n",
+    if (!strcmp(status_id, MATRIX_STATUS_ONLINE) ||
+        !strcmp(status_id, MATRIX_STATUS_AWAY) ||
+        !strcmp(status_id, MATRIX_STATUS_OFFLINE)) {
+      purple_debug_info("matrixprpl", "%s sees that %s is %s: %s\n",
                         from_username, to_username, status_id, message);
       purple_prpl_got_user_status(from->account, to_username, status_id,
                                   (message) ? "message" : NULL, message, NULL);
     } else {
-      purple_debug_error("nullprpl",
+      purple_debug_error("matrixprpl",
                          "%s's buddy %s has an unknown status: %s, %s",
                          from_username, to_username, status_id, message);
     }
@@ -189,7 +156,7 @@ static void discover_status(PurpleConnection *from, PurpleConnection *to,
 
 static void report_status_change(PurpleConnection *from, PurpleConnection *to,
                                  gpointer userdata) {
-  purple_debug_info("nullprpl", "notifying %s that %s changed status\n",
+  purple_debug_info("matrixprpl", "notifying %s that %s changed status\n",
                     to->account->username, from->account->username);
   discover_status(to, from, NULL);
 }
@@ -198,11 +165,11 @@ static void report_status_change(PurpleConnection *from, PurpleConnection *to,
 /*
  * UI callbacks
  */
-static void nullprpl_input_user_info(PurplePluginAction *action)
+static void matrixprpl_input_user_info(PurplePluginAction *action)
 {
   PurpleConnection *gc = (PurpleConnection *)action->context;
   PurpleAccount *acct = purple_connection_get_account(gc);
-  purple_debug_info("nullprpl", "showing 'Set User Info' dialog for %s\n",
+  purple_debug_info("matrixprpl", "showing 'Set User Info' dialog for %s\n",
                     acct->username);
 
   purple_account_request_change_user_info(acct);
@@ -211,10 +178,10 @@ static void nullprpl_input_user_info(PurplePluginAction *action)
 /* this is set to the actions member of the PurplePluginInfo struct at the
  * bottom.
  */
-static GList *nullprpl_actions(PurplePlugin *plugin, gpointer context)
+static GList *matrixprpl_actions(PurplePlugin *plugin, gpointer context)
 {
   PurplePluginAction *action = purple_plugin_action_new(
-    _("Set User Info..."), nullprpl_input_user_info);
+    _("Set User Info..."), matrixprpl_input_user_info);
   return g_list_append(NULL, action);
 }
 
@@ -222,13 +189,13 @@ static GList *nullprpl_actions(PurplePlugin *plugin, gpointer context)
 /*
  * prpl functions
  */
-static const char *nullprpl_list_icon(PurpleAccount *acct, PurpleBuddy *buddy)
+static const char *matrixprpl_list_icon(PurpleAccount *acct, PurpleBuddy *buddy)
 {
-  return "null";
+  return "matrix";
 }
 
-static char *nullprpl_status_text(PurpleBuddy *buddy) {
-  purple_debug_info("nullprpl", "getting %s's status text for %s\n",
+static char *matrixprpl_status_text(PurpleBuddy *buddy) {
+  purple_debug_info("matrixprpl", "getting %s's status text for %s\n",
                     buddy->name, buddy->account->username);
 
   if (purple_find_buddy(buddy->account, buddy->name)) {
@@ -243,25 +210,25 @@ static char *nullprpl_status_text(PurpleBuddy *buddy) {
     else
       text = g_strdup(name);
 
-    purple_debug_info("nullprpl", "%s's status text is %s\n", buddy->name, text);
+    purple_debug_info("matrixprpl", "%s's status text is %s\n", buddy->name, text);
     return text;
 
   } else {
-    purple_debug_info("nullprpl", "...but %s is not logged in\n", buddy->name);
+    purple_debug_info("matrixprpl", "...but %s is not logged in\n", buddy->name);
     return g_strdup("Not logged in");
   }
 }
 
-static void nullprpl_tooltip_text(PurpleBuddy *buddy,
+static void matrixprpl_tooltip_text(PurpleBuddy *buddy,
                                   PurpleNotifyUserInfo *info,
                                   gboolean full) {
-  PurpleConnection *gc = get_nullprpl_gc(buddy->name);
+  PurpleConnection *gc = get_matrixprpl_gc(buddy->name);
 
   if (gc) {
     /* they're logged in */
     PurplePresence *presence = purple_buddy_get_presence(buddy);
     PurpleStatus *status = purple_presence_get_active_status(presence);
-    char *msg = nullprpl_status_text(buddy);
+    char *msg = matrixprpl_status_text(buddy);
     purple_notify_user_info_add_pair(info, purple_status_get_name(status),
                                      msg);
     g_free(msg);
@@ -277,33 +244,33 @@ static void nullprpl_tooltip_text(PurpleBuddy *buddy,
     purple_notify_user_info_add_pair(info, _("User info"), _("not logged in"));
   }
 
-  purple_debug_info("nullprpl", "showing %s tooltip for %s\n",
+  purple_debug_info("matrixprpl", "showing %s tooltip for %s\n",
                     (full) ? "full" : "short", buddy->name);
 }
 
-static GList *nullprpl_status_types(PurpleAccount *acct)
+static GList *matrixprpl_status_types(PurpleAccount *acct)
 {
   GList *types = NULL;
   PurpleStatusType *type;
 
-  purple_debug_info("nullprpl", "returning status types for %s: %s, %s, %s\n",
+  purple_debug_info("matrixprpl", "returning status types for %s: %s, %s, %s\n",
                     acct->username,
-                    NULL_STATUS_ONLINE, NULL_STATUS_AWAY, NULL_STATUS_OFFLINE);
+                    MATRIX_STATUS_ONLINE, MATRIX_STATUS_AWAY, MATRIX_STATUS_OFFLINE);
 
   type = purple_status_type_new_with_attrs(PURPLE_STATUS_AVAILABLE,
-      NULL_STATUS_ONLINE, NULL, TRUE, TRUE, FALSE,
+      MATRIX_STATUS_ONLINE, NULL, TRUE, TRUE, FALSE,
       "message", _("Message"), purple_value_new(PURPLE_TYPE_STRING),
       NULL);
   types = g_list_prepend(types, type);
 
   type = purple_status_type_new_with_attrs(PURPLE_STATUS_AWAY,
-      NULL_STATUS_AWAY, NULL, TRUE, TRUE, FALSE,
+      MATRIX_STATUS_AWAY, NULL, TRUE, TRUE, FALSE,
       "message", _("Message"), purple_value_new(PURPLE_TYPE_STRING),
       NULL);
   types = g_list_prepend(types, type);
 
   type = purple_status_type_new_with_attrs(PURPLE_STATUS_OFFLINE,
-      NULL_STATUS_OFFLINE, NULL, TRUE, TRUE, FALSE,
+      MATRIX_STATUS_OFFLINE, NULL, TRUE, TRUE, FALSE,
       "message", _("Message"), purple_value_new(PURPLE_TYPE_STRING),
       NULL);
   types = g_list_prepend(types, type);
@@ -312,21 +279,21 @@ static GList *nullprpl_status_types(PurpleAccount *acct)
 }
 
 static void blist_example_menu_item(PurpleBlistNode *node, gpointer userdata) {
-  purple_debug_info("nullprpl", "example menu item clicked on user %s\n",
+  purple_debug_info("matrixprpl", "example menu item clicked on user %s\n",
                     ((PurpleBuddy *)node)->name);
 
   purple_notify_info(NULL,  /* plugin handle or PurpleConnection */
                      _("Primary title"),
                      _("Secondary title"),
-                     _("This is the callback for the nullprpl menu item."));
+                     _("This is the callback for the matrixprpl menu item."));
 }
 
-static GList *nullprpl_blist_node_menu(PurpleBlistNode *node) {
-  purple_debug_info("nullprpl", "providing buddy list context menu item\n");
+static GList *matrixprpl_blist_node_menu(PurpleBlistNode *node) {
+  purple_debug_info("matrixprpl", "providing buddy list context menu item\n");
 
   if (PURPLE_BLIST_NODE_IS_BUDDY(node)) {
     PurpleMenuAction *action = purple_menu_action_new(
-      _("Nullprpl example menu item"),
+      _("Matrixprpl example menu item"),
       PURPLE_CALLBACK(blist_example_menu_item),
       NULL,   /* userdata passed to the callback */
       NULL);  /* child menu items */
@@ -336,10 +303,10 @@ static GList *nullprpl_blist_node_menu(PurpleBlistNode *node) {
   }
 }
 
-static GList *nullprpl_chat_info(PurpleConnection *gc) {
+static GList *matrixprpl_chat_info(PurpleConnection *gc) {
   struct proto_chat_entry *pce; /* defined in prpl.h */
 
-  purple_debug_info("nullprpl", "returning chat setting 'room'\n");
+  purple_debug_info("matrixprpl", "returning chat setting 'room'\n");
 
   pce = g_new0(struct proto_chat_entry, 1);
   pce->label = _("Chat _room");
@@ -349,11 +316,11 @@ static GList *nullprpl_chat_info(PurpleConnection *gc) {
   return g_list_append(NULL, pce);
 }
 
-static GHashTable *nullprpl_chat_info_defaults(PurpleConnection *gc,
+static GHashTable *matrixprpl_chat_info_defaults(PurpleConnection *gc,
                                                const char *room) {
   GHashTable *defaults;
 
-  purple_debug_info("nullprpl", "returning chat default setting "
+  purple_debug_info("matrixprpl", "returning chat default setting "
                     "'room' = 'default'\n");
 
   defaults = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
@@ -361,12 +328,12 @@ static GHashTable *nullprpl_chat_info_defaults(PurpleConnection *gc,
   return defaults;
 }
 
-static void nullprpl_login(PurpleAccount *acct)
+static void matrixprpl_login(PurpleAccount *acct)
 {
   PurpleConnection *gc = purple_account_get_connection(acct);
   GList *offline_messages;
 
-  purple_debug_info("nullprpl", "logging in %s\n", acct->username);
+  purple_debug_info("matrixprpl", "logging in %s\n", acct->username);
 
   purple_connection_update_progress(gc, _("Connecting"),
                                     0,   /* which connection step this is */
@@ -378,18 +345,18 @@ static void nullprpl_login(PurpleAccount *acct)
   purple_connection_set_state(gc, PURPLE_CONNECTED);
 
   /* tell purple about everyone on our buddy list who's connected */
-  foreach_nullprpl_gc(discover_status, gc, NULL);
+  foreach_matrixprpl_gc(discover_status, gc, NULL);
 
-  /* notify other nullprpl accounts */
-  foreach_nullprpl_gc(report_status_change, gc, NULL);
+  /* notify other matrixprpl accounts */
+  foreach_matrixprpl_gc(report_status_change, gc, NULL);
 
   /* fetch stored offline messages */
-  purple_debug_info("nullprpl", "checking for offline messages for %s\n",
+  purple_debug_info("matrixprpl", "checking for offline messages for %s\n",
                     acct->username);
   offline_messages = g_hash_table_lookup(goffline_messages, acct->username);
   while (offline_messages) {
     GOfflineMessage *message = (GOfflineMessage *)offline_messages->data;
-    purple_debug_info("nullprpl", "delivering offline message to %s: %s\n",
+    purple_debug_info("matrixprpl", "delivering offline message to %s: %s\n",
                       acct->username, message->message);
     serv_got_im(gc, message->from, message->message, message->flags,
                 message->mtime);
@@ -404,29 +371,29 @@ static void nullprpl_login(PurpleAccount *acct)
   g_hash_table_remove(goffline_messages, &acct->username);
 }
 
-static void nullprpl_close(PurpleConnection *gc)
+static void matrixprpl_close(PurpleConnection *gc)
 {
-  /* notify other nullprpl accounts */
-  foreach_nullprpl_gc(report_status_change, gc, NULL);
+  /* notify other matrixprpl accounts */
+  foreach_matrixprpl_gc(report_status_change, gc, NULL);
 }
 
-static int nullprpl_send_im(PurpleConnection *gc, const char *who,
+static int matrixprpl_send_im(PurpleConnection *gc, const char *who,
                             const char *message, PurpleMessageFlags flags)
 {
   const char *from_username = gc->account->username;
   PurpleMessageFlags receive_flags = ((flags & ~PURPLE_MESSAGE_SEND)
                                       | PURPLE_MESSAGE_RECV);
-  PurpleAccount *to_acct = purple_accounts_find(who, NULLPRPL_ID);
+  PurpleAccount *to_acct = purple_accounts_find(who, PRPL_ID);
   PurpleConnection *to;
 
-  purple_debug_info("nullprpl", "sending message from %s to %s: %s\n",
+  purple_debug_info("matrixprpl", "sending message from %s to %s: %s\n",
                     from_username, who, message);
 
   /* is the sender blocked by the recipient's privacy settings? */
   if (to_acct && !purple_privacy_check(to_acct, gc->account->username)) {
     char *msg = g_strdup_printf(
       _("Your message was blocked by %s's privacy settings."), who);
-    purple_debug_info("nullprpl",
+    purple_debug_info("matrixprpl",
                       "discarding; %s is blocked by %s's privacy settings\n",
                       from_username, who);
     purple_conv_present_error(who, gc->account, msg);
@@ -435,7 +402,7 @@ static int nullprpl_send_im(PurpleConnection *gc, const char *who,
   }
 
   /* is the recipient online? */
-  to = get_nullprpl_gc(who);
+  to = get_matrixprpl_gc(who);
   if (to) {  /* yes, send */
     serv_got_im(to, from_username, message, receive_flags, time(NULL));
 
@@ -443,7 +410,7 @@ static int nullprpl_send_im(PurpleConnection *gc, const char *who,
     GOfflineMessage *offline_message;
     GList *messages;
 
-    purple_debug_info("nullprpl",
+    purple_debug_info("matrixprpl",
                       "%s is offline, sending as offline message\n", who);
     offline_message = g_new0(GOfflineMessage, 1);
     offline_message->from = g_strdup(from_username);
@@ -459,8 +426,8 @@ static int nullprpl_send_im(PurpleConnection *gc, const char *who,
    return 1;
 }
 
-static void nullprpl_set_info(PurpleConnection *gc, const char *info) {
-  purple_debug_info("nullprpl", "setting %s's user info to %s\n",
+static void matrixprpl_set_info(PurpleConnection *gc, const char *info) {
+  purple_debug_info("matrixprpl", "setting %s's user info to %s\n",
                     gc->account->username, info);
 }
 
@@ -477,7 +444,7 @@ static void notify_typing(PurpleConnection *from, PurpleConnection *to,
                           gpointer typing) {
   const char *from_username = from->account->username;
   const char *action = typing_state_to_string((PurpleTypingState)typing);
-  purple_debug_info("nullprpl", "notifying %s that %s %s\n",
+  purple_debug_info("matrixprpl", "notifying %s that %s %s\n",
                     to->account->username, from_username, action);
 
   serv_got_typing(to,
@@ -487,29 +454,29 @@ static void notify_typing(PurpleConnection *from, PurpleConnection *to,
                   (PurpleTypingState)typing);
 }
 
-static unsigned int nullprpl_send_typing(PurpleConnection *gc, const char *name,
+static unsigned int matrixprpl_send_typing(PurpleConnection *gc, const char *name,
                                          PurpleTypingState typing) {
-  purple_debug_info("nullprpl", "%s %s\n", gc->account->username,
+  purple_debug_info("matrixprpl", "%s %s\n", gc->account->username,
                     typing_state_to_string(typing));
-  foreach_nullprpl_gc(notify_typing, gc, (gpointer)typing);
+  foreach_matrixprpl_gc(notify_typing, gc, (gpointer)typing);
   return 0;
 }
 
-static void nullprpl_get_info(PurpleConnection *gc, const char *username) {
+static void matrixprpl_get_info(PurpleConnection *gc, const char *username) {
   const char *body;
   PurpleNotifyUserInfo *info = purple_notify_user_info_new();
   PurpleAccount *acct;
 
-  purple_debug_info("nullprpl", "Fetching %s's user info for %s\n", username,
+  purple_debug_info("matrixprpl", "Fetching %s's user info for %s\n", username,
                     gc->account->username);
 
-  if (!get_nullprpl_gc(username)) {
+  if (!get_matrixprpl_gc(username)) {
     char *msg = g_strdup_printf(_("%s is not logged in."), username);
     purple_notify_error(gc, _("User Info"), _("User info not available. "), msg);
     g_free(msg);
   }
 
-  acct = purple_accounts_find(username, NULLPRPL_ID);
+  acct = purple_accounts_find(username, PRPL_ID);
   if (acct)
     body = purple_account_get_user_info(acct);
   else
@@ -524,34 +491,34 @@ static void nullprpl_get_info(PurpleConnection *gc, const char *username) {
                          NULL);     /* userdata for callback */
 }
 
-static void nullprpl_set_status(PurpleAccount *acct, PurpleStatus *status) {
+static void matrixprpl_set_status(PurpleAccount *acct, PurpleStatus *status) {
   const char *msg = purple_status_get_attr_string(status, "message");
-  purple_debug_info("nullprpl", "setting %s's status to %s: %s\n",
+  purple_debug_info("matrixprpl", "setting %s's status to %s: %s\n",
                     acct->username, purple_status_get_name(status), msg);
 
-  foreach_nullprpl_gc(report_status_change, get_nullprpl_gc(acct->username),
+  foreach_matrixprpl_gc(report_status_change, get_matrixprpl_gc(acct->username),
                       NULL);
 }
 
-static void nullprpl_set_idle(PurpleConnection *gc, int idletime) {
-  purple_debug_info("nullprpl",
+static void matrixprpl_set_idle(PurpleConnection *gc, int idletime) {
+  purple_debug_info("matrixprpl",
                     "purple reports that %s has been idle for %d seconds\n",
                     gc->account->username, idletime);
 }
 
-static void nullprpl_change_passwd(PurpleConnection *gc, const char *old_pass,
+static void matrixprpl_change_passwd(PurpleConnection *gc, const char *old_pass,
                                    const char *new_pass) {
-  purple_debug_info("nullprpl", "%s wants to change their password\n",
+  purple_debug_info("matrixprpl", "%s wants to change their password\n",
                     gc->account->username);
 }
 
-static void nullprpl_add_buddy(PurpleConnection *gc, PurpleBuddy *buddy,
+static void matrixprpl_add_buddy(PurpleConnection *gc, PurpleBuddy *buddy,
                                PurpleGroup *group)
 {
   const char *username = gc->account->username;
-  PurpleConnection *buddy_gc = get_nullprpl_gc(buddy->name);
+  PurpleConnection *buddy_gc = get_matrixprpl_gc(buddy->name);
 
-  purple_debug_info("nullprpl", "adding %s to %s's buddy list\n", buddy->name,
+  purple_debug_info("matrixprpl", "adding %s to %s's buddy list\n", buddy->name,
                     username);
 
   if (buddy_gc) {
@@ -560,10 +527,10 @@ static void nullprpl_add_buddy(PurpleConnection *gc, PurpleBuddy *buddy,
     discover_status(gc, buddy_gc, NULL);
 
     if (purple_find_buddy(buddy_acct, username)) {
-      purple_debug_info("nullprpl", "%s is already on %s's buddy list\n",
+      purple_debug_info("matrixprpl", "%s is already on %s's buddy list\n",
                         username, buddy->name);
     } else {
-      purple_debug_info("nullprpl", "asking %s if they want to add %s\n",
+      purple_debug_info("matrixprpl", "asking %s if they want to add %s\n",
                         buddy->name, username);
       purple_account_request_add(buddy_acct,
                                  username,
@@ -574,36 +541,36 @@ static void nullprpl_add_buddy(PurpleConnection *gc, PurpleBuddy *buddy,
   }
 }
 
-static void nullprpl_add_buddies(PurpleConnection *gc, GList *buddies,
+static void matrixprpl_add_buddies(PurpleConnection *gc, GList *buddies,
                                  GList *groups) {
   GList *buddy = buddies;
   GList *group = groups;
 
-  purple_debug_info("nullprpl", "adding multiple buddies\n");
+  purple_debug_info("matrixprpl", "adding multiple buddies\n");
 
   while (buddy && group) {
-    nullprpl_add_buddy(gc, (PurpleBuddy *)buddy->data, (PurpleGroup *)group->data);
+    matrixprpl_add_buddy(gc, (PurpleBuddy *)buddy->data, (PurpleGroup *)group->data);
     buddy = g_list_next(buddy);
     group = g_list_next(group);
   }
 }
 
-static void nullprpl_remove_buddy(PurpleConnection *gc, PurpleBuddy *buddy,
+static void matrixprpl_remove_buddy(PurpleConnection *gc, PurpleBuddy *buddy,
                                   PurpleGroup *group)
 {
-  purple_debug_info("nullprpl", "removing %s from %s's buddy list\n",
+  purple_debug_info("matrixprpl", "removing %s from %s's buddy list\n",
                     buddy->name, gc->account->username);
 }
 
-static void nullprpl_remove_buddies(PurpleConnection *gc, GList *buddies,
+static void matrixprpl_remove_buddies(PurpleConnection *gc, GList *buddies,
                                     GList *groups) {
   GList *buddy = buddies;
   GList *group = groups;
 
-  purple_debug_info("nullprpl", "removing multiple buddies\n");
+  purple_debug_info("matrixprpl", "removing multiple buddies\n");
 
   while (buddy && group) {
-    nullprpl_remove_buddy(gc, (PurpleBuddy *)buddy->data,
+    matrixprpl_remove_buddy(gc, (PurpleBuddy *)buddy->data,
                           (PurpleGroup *)group->data);
     buddy = g_list_next(buddy);
     group = g_list_next(group);
@@ -611,41 +578,41 @@ static void nullprpl_remove_buddies(PurpleConnection *gc, GList *buddies,
 }
 
 /*
- * nullprpl uses purple's local whitelist and blacklist, stored in blist.xml, as
+ * matrixprpl uses purple's local whitelist and blacklist, stored in blist.xml, as
  * its authoritative privacy settings, and uses purple's logic (specifically
  * purple_privacy_check(), from privacy.h), to determine whether messages are
  * allowed or blocked.
  */
-static void nullprpl_add_permit(PurpleConnection *gc, const char *name) {
-  purple_debug_info("nullprpl", "%s adds %s to their allowed list\n",
+static void matrixprpl_add_permit(PurpleConnection *gc, const char *name) {
+  purple_debug_info("matrixprpl", "%s adds %s to their allowed list\n",
                     gc->account->username, name);
 }
 
-static void nullprpl_add_deny(PurpleConnection *gc, const char *name) {
-  purple_debug_info("nullprpl", "%s adds %s to their blocked list\n",
+static void matrixprpl_add_deny(PurpleConnection *gc, const char *name) {
+  purple_debug_info("matrixprpl", "%s adds %s to their blocked list\n",
                     gc->account->username, name);
 }
 
-static void nullprpl_rem_permit(PurpleConnection *gc, const char *name) {
-  purple_debug_info("nullprpl", "%s removes %s from their allowed list\n",
+static void matrixprpl_rem_permit(PurpleConnection *gc, const char *name) {
+  purple_debug_info("matrixprpl", "%s removes %s from their allowed list\n",
                     gc->account->username, name);
 }
 
-static void nullprpl_rem_deny(PurpleConnection *gc, const char *name) {
-  purple_debug_info("nullprpl", "%s removes %s from their blocked list\n",
+static void matrixprpl_rem_deny(PurpleConnection *gc, const char *name) {
+  purple_debug_info("matrixprpl", "%s removes %s from their blocked list\n",
                     gc->account->username, name);
 }
 
-static void nullprpl_set_permit_deny(PurpleConnection *gc) {
+static void matrixprpl_set_permit_deny(PurpleConnection *gc) {
   /* this is for synchronizing the local black/whitelist with the server.
-   * for nullprpl, it's a noop.
+   * for matrixprpl, it's a noop.
    */
 }
 
 static void joined_chat(PurpleConvChat *from, PurpleConvChat *to,
                         int id, const char *room, gpointer userdata) {
   /*  tell their chat window that we joined */
-  purple_debug_info("nullprpl", "%s sees that %s joined chat room %s\n",
+  purple_debug_info("matrixprpl", "%s sees that %s joined chat room %s\n",
                     to->nick, from->nick, room);
   purple_conv_chat_add_user(to,
                             from->nick,
@@ -655,7 +622,7 @@ static void joined_chat(PurpleConvChat *from, PurpleConvChat *to,
 
   if (from != to) {
     /* add them to our chat window */
-    purple_debug_info("nullprpl", "%s sees that %s is in chat room %s\n",
+    purple_debug_info("matrixprpl", "%s sees that %s is in chat room %s\n",
                       from->nick, to->nick, room);
     purple_conv_chat_add_user(from,
                               to->nick,
@@ -665,11 +632,11 @@ static void joined_chat(PurpleConvChat *from, PurpleConvChat *to,
   }
 }
 
-static void nullprpl_join_chat(PurpleConnection *gc, GHashTable *components) {
+static void matrixprpl_join_chat(PurpleConnection *gc, GHashTable *components) {
   const char *username = gc->account->username;
   const char *room = g_hash_table_lookup(components, "room");
   int chat_id = g_str_hash(room);
-  purple_debug_info("nullprpl", "%s is joining chat room %s\n", username, room);
+  purple_debug_info("matrixprpl", "%s is joining chat room %s\n", username, room);
 
   if (!purple_find_chat(gc, chat_id)) {
     serv_got_joined_chat(gc, chat_id, room);
@@ -680,25 +647,25 @@ static void nullprpl_join_chat(PurpleConnection *gc, GHashTable *components) {
     char *tmp = g_strdup_printf(_("%s is already in chat room %s."),
                                 username,
                                 room);
-    purple_debug_info("nullprpl", "%s is already in chat room %s\n", username,
+    purple_debug_info("matrixprpl", "%s is already in chat room %s\n", username,
                       room);
     purple_notify_info(gc, _("Join chat"), _("Join chat"), tmp);
     g_free(tmp);
   }
 }
 
-static void nullprpl_reject_chat(PurpleConnection *gc, GHashTable *components) {
+static void matrixprpl_reject_chat(PurpleConnection *gc, GHashTable *components) {
   const char *invited_by = g_hash_table_lookup(components, "invited_by");
   const char *room = g_hash_table_lookup(components, "room");
   const char *username = gc->account->username;
-  PurpleConnection *invited_by_gc = get_nullprpl_gc(invited_by);
+  PurpleConnection *invited_by_gc = get_matrixprpl_gc(invited_by);
   char *message = g_strdup_printf(
     "%s %s %s.",
     username,
     _("has rejected your invitation to join the chat room"),
     room);
 
-  purple_debug_info("nullprpl",
+  purple_debug_info("matrixprpl",
                     "%s has rejected %s's invitation to join chat room %s\n",
                     username, invited_by, room);
 
@@ -709,27 +676,27 @@ static void nullprpl_reject_chat(PurpleConnection *gc, GHashTable *components) {
   g_free(message);
 }
 
-static char *nullprpl_get_chat_name(GHashTable *components) {
+static char *matrixprpl_get_chat_name(GHashTable *components) {
   const char *room = g_hash_table_lookup(components, "room");
-  purple_debug_info("nullprpl", "reporting chat room name '%s'\n", room);
+  purple_debug_info("matrixprpl", "reporting chat room name '%s'\n", room);
   return g_strdup(room);
 }
 
-static void nullprpl_chat_invite(PurpleConnection *gc, int id,
+static void matrixprpl_chat_invite(PurpleConnection *gc, int id,
                                  const char *message, const char *who) {
   const char *username = gc->account->username;
   PurpleConversation *conv = purple_find_chat(gc, id);
   const char *room = conv->name;
-  PurpleAccount *to_acct = purple_accounts_find(who, NULLPRPL_ID);
+  PurpleAccount *to_acct = purple_accounts_find(who, PRPL_ID);
 
-  purple_debug_info("nullprpl", "%s is inviting %s to join chat room %s\n",
+  purple_debug_info("matrixprpl", "%s is inviting %s to join chat room %s\n",
                     username, who, room);
 
   if (to_acct) {
     PurpleConversation *to_conv = purple_find_chat(to_acct->gc, id);
     if (to_conv) {
       char *tmp = g_strdup_printf("%s is already in chat room %s.", who, room);
-      purple_debug_info("nullprpl",
+      purple_debug_info("matrixprpl",
                         "%s is already in chat room %s; "
                         "ignoring invitation from %s\n",
                         who, room, username);
@@ -749,7 +716,7 @@ static void left_chat_room(PurpleConvChat *from, PurpleConvChat *to,
                            int id, const char *room, gpointer userdata) {
   if (from != to) {
     /*  tell their chat window that we left */
-    purple_debug_info("nullprpl", "%s sees that %s left chat room %s\n",
+    purple_debug_info("matrixprpl", "%s sees that %s left chat room %s\n",
                       to->nick, from->nick, room);
     purple_conv_chat_remove_user(to,
                                  from->nick,
@@ -757,9 +724,9 @@ static void left_chat_room(PurpleConvChat *from, PurpleConvChat *to,
   }
 }
 
-static void nullprpl_chat_leave(PurpleConnection *gc, int id) {
+static void matrixprpl_chat_leave(PurpleConnection *gc, int id) {
   PurpleConversation *conv = purple_find_chat(gc, id);
-  purple_debug_info("nullprpl", "%s is leaving chat room %s\n",
+  purple_debug_info("matrixprpl", "%s is leaving chat room %s\n",
                     gc->account->username, conv->name);
 
   /* tell everyone that we left */
@@ -788,12 +755,12 @@ static PurpleCmdRet send_whisper(PurpleConversation *conv, const gchar *cmd,
   }
 
   from_username = conv->account->username;
-  purple_debug_info("nullprpl", "%s whispers to %s in chat room %s: %s\n",
+  purple_debug_info("matrixprpl", "%s whispers to %s in chat room %s: %s\n",
                     from_username, to_username, conv->name, message);
 
   chat = purple_conversation_get_chat_data(conv);
   chat_buddy = purple_conv_chat_cb_find(chat, to_username);
-  to = get_nullprpl_gc(to_username);
+  to = get_matrixprpl_gc(to_username);
 
   if (!chat_buddy) {
     /* this will be freed by the caller */
@@ -817,11 +784,11 @@ static PurpleCmdRet send_whisper(PurpleConversation *conv, const gchar *cmd,
   }
 }
 
-static void nullprpl_chat_whisper(PurpleConnection *gc, int id, const char *who,
+static void matrixprpl_chat_whisper(PurpleConnection *gc, int id, const char *who,
                                   const char *message) {
   const char *username = gc->account->username;
   PurpleConversation *conv = purple_find_chat(gc, id);
-  purple_debug_info("nullprpl",
+  purple_debug_info("matrixprpl",
                     "%s receives whisper from %s in chat room %s: %s\n",
                     username, who, conv->name, message);
 
@@ -833,22 +800,22 @@ static void nullprpl_chat_whisper(PurpleConnection *gc, int id, const char *who,
 static void receive_chat_message(PurpleConvChat *from, PurpleConvChat *to,
                                  int id, const char *room, gpointer userdata) {
   const char *message = (const char *)userdata;
-  PurpleConnection *to_gc = get_nullprpl_gc(to->nick);
+  PurpleConnection *to_gc = get_matrixprpl_gc(to->nick);
 
-  purple_debug_info("nullprpl",
+  purple_debug_info("matrixprpl",
                     "%s receives message from %s in chat room %s: %s\n",
                     to->nick, from->nick, room, message);
   serv_got_chat_in(to_gc, id, from->nick, PURPLE_MESSAGE_RECV, message,
                    time(NULL));
 }
 
-static int nullprpl_chat_send(PurpleConnection *gc, int id, const char *message,
+static int matrixprpl_chat_send(PurpleConnection *gc, int id, const char *message,
                               PurpleMessageFlags flags) {
   const char *username = gc->account->username;
   PurpleConversation *conv = purple_find_chat(gc, id);
 
   if (conv) {
-    purple_debug_info("nullprpl",
+    purple_debug_info("matrixprpl",
                       "%s is sending message to chat room %s: %s\n", username,
                       conv->name, message);
 
@@ -856,7 +823,7 @@ static int nullprpl_chat_send(PurpleConnection *gc, int id, const char *message,
     foreach_gc_in_chat(receive_chat_message, gc, id, (gpointer)message);
     return 0;
   } else {
-    purple_debug_info("nullprpl",
+    purple_debug_info("matrixprpl",
                       "tried to send message from %s to chat room #%d: %s\n"
                       "but couldn't find chat room",
                       username, id, message);
@@ -864,61 +831,61 @@ static int nullprpl_chat_send(PurpleConnection *gc, int id, const char *message,
   }
 }
 
-static void nullprpl_register_user(PurpleAccount *acct) {
- purple_debug_info("nullprpl", "registering account for %s\n",
+static void matrixprpl_register_user(PurpleAccount *acct) {
+ purple_debug_info("matrixprpl", "registering account for %s\n",
                    acct->username);
 }
 
-static void nullprpl_get_cb_info(PurpleConnection *gc, int id, const char *who) {
+static void matrixprpl_get_cb_info(PurpleConnection *gc, int id, const char *who) {
   PurpleConversation *conv = purple_find_chat(gc, id);
-  purple_debug_info("nullprpl",
+  purple_debug_info("matrixprpl",
                     "retrieving %s's info for %s in chat room %s\n", who,
                     gc->account->username, conv->name);
 
-  nullprpl_get_info(gc, who);
+  matrixprpl_get_info(gc, who);
 }
 
-static void nullprpl_alias_buddy(PurpleConnection *gc, const char *who,
+static void matrixprpl_alias_buddy(PurpleConnection *gc, const char *who,
                                  const char *alias) {
- purple_debug_info("nullprpl", "%s sets %s's alias to %s\n",
+ purple_debug_info("matrixprpl", "%s sets %s's alias to %s\n",
                    gc->account->username, who, alias);
 }
 
-static void nullprpl_group_buddy(PurpleConnection *gc, const char *who,
+static void matrixprpl_group_buddy(PurpleConnection *gc, const char *who,
                                  const char *old_group,
                                  const char *new_group) {
-  purple_debug_info("nullprpl", "%s has moved %s from group %s to group %s\n",
+  purple_debug_info("matrixprpl", "%s has moved %s from group %s to group %s\n",
                     gc->account->username, who, old_group, new_group);
 }
 
-static void nullprpl_rename_group(PurpleConnection *gc, const char *old_name,
+static void matrixprpl_rename_group(PurpleConnection *gc, const char *old_name,
                                   PurpleGroup *group, GList *moved_buddies) {
-  purple_debug_info("nullprpl", "%s has renamed group %s to %s\n",
+  purple_debug_info("matrixprpl", "%s has renamed group %s to %s\n",
                     gc->account->username, old_name, group->name);
 }
 
-static void nullprpl_convo_closed(PurpleConnection *gc, const char *who) {
-  purple_debug_info("nullprpl", "%s's conversation with %s was closed\n",
+static void matrixprpl_convo_closed(PurpleConnection *gc, const char *who) {
+  purple_debug_info("matrixprpl", "%s's conversation with %s was closed\n",
                     gc->account->username, who);
 }
 
 /* normalize a username (e.g. remove whitespace, add default domain, etc.)
- * for nullprpl, this is a noop.
+ * for matrixprpl, this is a noop.
  */
-static const char *nullprpl_normalize(const PurpleAccount *acct,
+static const char *matrixprpl_normalize(const PurpleAccount *acct,
                                       const char *input) {
   return NULL;
 }
 
-static void nullprpl_set_buddy_icon(PurpleConnection *gc,
+static void matrixprpl_set_buddy_icon(PurpleConnection *gc,
                                     PurpleStoredImage *img) {
- purple_debug_info("nullprpl", "setting %s's buddy icon to %s\n",
+ purple_debug_info("matrixprpl", "setting %s's buddy icon to %s\n",
                    gc->account->username,
-                   img ? purple_imgstore_get_filename(img) : "(null)");
+                   img ? purple_imgstore_get_filename(img) : "(matrix)");
 }
 
-static void nullprpl_remove_group(PurpleConnection *gc, PurpleGroup *group) {
-  purple_debug_info("nullprpl", "%s has removed group %s\n",
+static void matrixprpl_remove_group(PurpleConnection *gc, PurpleGroup *group) {
+  purple_debug_info("matrixprpl", "%s has removed group %s\n",
                     gc->account->username, group->name);
 }
 
@@ -942,7 +909,7 @@ static void set_chat_topic_fn(PurpleConvChat *from, PurpleConvChat *to,
   g_free(msg);
 }
 
-static void nullprpl_set_chat_topic(PurpleConnection *gc, int id,
+static void matrixprpl_set_chat_topic(PurpleConnection *gc, int id,
                                     const char *topic) {
   PurpleConversation *conv = purple_find_chat(gc, id);
   PurpleConvChat *chat = purple_conversation_get_chat_data(conv);
@@ -951,7 +918,7 @@ static void nullprpl_set_chat_topic(PurpleConnection *gc, int id,
   if (!chat)
     return;
 
-  purple_debug_info("nullprpl", "%s sets topic of chat room '%s' to '%s'\n",
+  purple_debug_info("matrixprpl", "%s sets topic of chat room '%s' to '%s'\n",
                     gc->account->username, conv->name, topic);
 
   last_topic = purple_conv_chat_get_topic(chat);
@@ -962,12 +929,12 @@ static void nullprpl_set_chat_topic(PurpleConnection *gc, int id,
   foreach_gc_in_chat(set_chat_topic_fn, gc, id, (gpointer)topic);
 }
 
-static gboolean nullprpl_finish_get_roomlist(gpointer roomlist) {
+static gboolean matrixprpl_finish_get_roomlist(gpointer roomlist) {
   purple_roomlist_set_in_progress((PurpleRoomlist *)roomlist, FALSE);
   return FALSE;
 }
 
-static PurpleRoomlist *nullprpl_roomlist_get_list(PurpleConnection *gc) {
+static PurpleRoomlist *matrixprpl_roomlist_get_list(PurpleConnection *gc) {
   const char *username = gc->account->username;
   PurpleRoomlist *roomlist = purple_roomlist_new(gc->account);
   GList *fields = NULL;
@@ -975,7 +942,7 @@ static PurpleRoomlist *nullprpl_roomlist_get_list(PurpleConnection *gc) {
   GList *chats;
   GList *seen_ids = NULL;
 
-  purple_debug_info("nullprpl", "%s asks for room list; returning:\n", username);
+  purple_debug_info("matrixprpl", "%s asks for room list; returning:\n", username);
 
   /* set up the room list */
   field = purple_roomlist_field_new(PURPLE_ROOMLIST_FIELD_STRING, "room",
@@ -1003,7 +970,7 @@ static PurpleRoomlist *nullprpl_roomlist_get_list(PurpleConnection *gc) {
      * of this function and none of the conversations are being deleted
      * in that timespan. */
     seen_ids = g_list_prepend(seen_ids, (char *)name); /* no, it's new. */
-    purple_debug_info("nullprpl", "%s (%d), ", name, id);
+    purple_debug_info("matrixprpl", "%s (%d), ", name, id);
 
     room = purple_roomlist_room_new(PURPLE_ROOMLIST_ROOMTYPE_ROOM, name, NULL);
     purple_roomlist_room_add_field(roomlist, room, name);
@@ -1012,29 +979,29 @@ static PurpleRoomlist *nullprpl_roomlist_get_list(PurpleConnection *gc) {
   }
 
   g_list_free(seen_ids);
-  purple_timeout_add(1 /* ms */, nullprpl_finish_get_roomlist, roomlist);
+  purple_timeout_add(1 /* ms */, matrixprpl_finish_get_roomlist, roomlist);
   return roomlist;
 }
 
-static void nullprpl_roomlist_cancel(PurpleRoomlist *list) {
- purple_debug_info("nullprpl", "%s asked to cancel room list request\n",
+static void matrixprpl_roomlist_cancel(PurpleRoomlist *list) {
+ purple_debug_info("matrixprpl", "%s asked to cancel room list request\n",
                    list->account->username);
 }
 
-static void nullprpl_roomlist_expand_category(PurpleRoomlist *list,
+static void matrixprpl_roomlist_expand_category(PurpleRoomlist *list,
                                               PurpleRoomlistRoom *category) {
- purple_debug_info("nullprpl", "%s asked to expand room list category %s\n",
+ purple_debug_info("matrixprpl", "%s asked to expand room list category %s\n",
                    list->account->username, category->name);
 }
 
-/* nullprpl doesn't support file transfer...yet... */
-static gboolean nullprpl_can_receive_file(PurpleConnection *gc,
+/* matrixprpl doesn't support file transfer...yet... */
+static gboolean matrixprpl_can_receive_file(PurpleConnection *gc,
                                           const char *who) {
   return FALSE;
 }
 
-static gboolean nullprpl_offline_message(const PurpleBuddy *buddy) {
-  purple_debug_info("nullprpl",
+static gboolean matrixprpl_offline_message(const PurpleBuddy *buddy) {
+  purple_debug_info("matrixprpl",
                     "reporting that offline messages are supported for %s\n",
                     buddy->name);
   return TRUE;
@@ -1048,8 +1015,8 @@ static gboolean nullprpl_offline_message(const PurpleBuddy *buddy) {
 static PurplePluginProtocolInfo prpl_info =
 {
   OPT_PROTO_NO_PASSWORD | OPT_PROTO_CHAT_TOPIC,  /* options */
-  NULL,               /* user_splits, initialized in nullprpl_init() */
-  NULL,               /* protocol_options, initialized in nullprpl_init() */
+  NULL,               /* user_splits, initialized in matrixprpl_init() */
+  NULL,               /* protocol_options, initialized in matrixprpl_init() */
   {   /* icon_spec, a PurpleBuddyIconSpec */
       "png,jpg,gif",                   /* format */
       0,                               /* min_width */
@@ -1059,61 +1026,61 @@ static PurplePluginProtocolInfo prpl_info =
       10000,                           /* max_filesize */
       PURPLE_ICON_SCALE_DISPLAY,       /* scale_rules */
   },
-  nullprpl_list_icon,                  /* list_icon */
+  matrixprpl_list_icon,                  /* list_icon */
   NULL,                                /* list_emblem */
-  nullprpl_status_text,                /* status_text */
-  nullprpl_tooltip_text,               /* tooltip_text */
-  nullprpl_status_types,               /* status_types */
-  nullprpl_blist_node_menu,            /* blist_node_menu */
-  nullprpl_chat_info,                  /* chat_info */
-  nullprpl_chat_info_defaults,         /* chat_info_defaults */
-  nullprpl_login,                      /* login */
-  nullprpl_close,                      /* close */
-  nullprpl_send_im,                    /* send_im */
-  nullprpl_set_info,                   /* set_info */
-  nullprpl_send_typing,                /* send_typing */
-  nullprpl_get_info,                   /* get_info */
-  nullprpl_set_status,                 /* set_status */
-  nullprpl_set_idle,                   /* set_idle */
-  nullprpl_change_passwd,              /* change_passwd */
-  nullprpl_add_buddy,                  /* add_buddy */
-  nullprpl_add_buddies,                /* add_buddies */
-  nullprpl_remove_buddy,               /* remove_buddy */
-  nullprpl_remove_buddies,             /* remove_buddies */
-  nullprpl_add_permit,                 /* add_permit */
-  nullprpl_add_deny,                   /* add_deny */
-  nullprpl_rem_permit,                 /* rem_permit */
-  nullprpl_rem_deny,                   /* rem_deny */
-  nullprpl_set_permit_deny,            /* set_permit_deny */
-  nullprpl_join_chat,                  /* join_chat */
-  nullprpl_reject_chat,                /* reject_chat */
-  nullprpl_get_chat_name,              /* get_chat_name */
-  nullprpl_chat_invite,                /* chat_invite */
-  nullprpl_chat_leave,                 /* chat_leave */
-  nullprpl_chat_whisper,               /* chat_whisper */
-  nullprpl_chat_send,                  /* chat_send */
+  matrixprpl_status_text,                /* status_text */
+  matrixprpl_tooltip_text,               /* tooltip_text */
+  matrixprpl_status_types,               /* status_types */
+  matrixprpl_blist_node_menu,            /* blist_node_menu */
+  matrixprpl_chat_info,                  /* chat_info */
+  matrixprpl_chat_info_defaults,         /* chat_info_defaults */
+  matrixprpl_login,                      /* login */
+  matrixprpl_close,                      /* close */
+  matrixprpl_send_im,                    /* send_im */
+  matrixprpl_set_info,                   /* set_info */
+  matrixprpl_send_typing,                /* send_typing */
+  matrixprpl_get_info,                   /* get_info */
+  matrixprpl_set_status,                 /* set_status */
+  matrixprpl_set_idle,                   /* set_idle */
+  matrixprpl_change_passwd,              /* change_passwd */
+  matrixprpl_add_buddy,                  /* add_buddy */
+  matrixprpl_add_buddies,                /* add_buddies */
+  matrixprpl_remove_buddy,               /* remove_buddy */
+  matrixprpl_remove_buddies,             /* remove_buddies */
+  matrixprpl_add_permit,                 /* add_permit */
+  matrixprpl_add_deny,                   /* add_deny */
+  matrixprpl_rem_permit,                 /* rem_permit */
+  matrixprpl_rem_deny,                   /* rem_deny */
+  matrixprpl_set_permit_deny,            /* set_permit_deny */
+  matrixprpl_join_chat,                  /* join_chat */
+  matrixprpl_reject_chat,                /* reject_chat */
+  matrixprpl_get_chat_name,              /* get_chat_name */
+  matrixprpl_chat_invite,                /* chat_invite */
+  matrixprpl_chat_leave,                 /* chat_leave */
+  matrixprpl_chat_whisper,               /* chat_whisper */
+  matrixprpl_chat_send,                  /* chat_send */
   NULL,                                /* keepalive */
-  nullprpl_register_user,              /* register_user */
-  nullprpl_get_cb_info,                /* get_cb_info */
+  matrixprpl_register_user,              /* register_user */
+  matrixprpl_get_cb_info,                /* get_cb_info */
   NULL,                                /* get_cb_away */
-  nullprpl_alias_buddy,                /* alias_buddy */
-  nullprpl_group_buddy,                /* group_buddy */
-  nullprpl_rename_group,               /* rename_group */
+  matrixprpl_alias_buddy,                /* alias_buddy */
+  matrixprpl_group_buddy,                /* group_buddy */
+  matrixprpl_rename_group,               /* rename_group */
   NULL,                                /* buddy_free */
-  nullprpl_convo_closed,               /* convo_closed */
-  nullprpl_normalize,                  /* normalize */
-  nullprpl_set_buddy_icon,             /* set_buddy_icon */
-  nullprpl_remove_group,               /* remove_group */
+  matrixprpl_convo_closed,               /* convo_closed */
+  matrixprpl_normalize,                  /* normalize */
+  matrixprpl_set_buddy_icon,             /* set_buddy_icon */
+  matrixprpl_remove_group,               /* remove_group */
   NULL,                                /* get_cb_real_name */
-  nullprpl_set_chat_topic,             /* set_chat_topic */
+  matrixprpl_set_chat_topic,             /* set_chat_topic */
   NULL,                                /* find_blist_chat */
-  nullprpl_roomlist_get_list,          /* roomlist_get_list */
-  nullprpl_roomlist_cancel,            /* roomlist_cancel */
-  nullprpl_roomlist_expand_category,   /* roomlist_expand_category */
-  nullprpl_can_receive_file,           /* can_receive_file */
+  matrixprpl_roomlist_get_list,          /* roomlist_get_list */
+  matrixprpl_roomlist_cancel,            /* roomlist_cancel */
+  matrixprpl_roomlist_expand_category,   /* roomlist_expand_category */
+  matrixprpl_can_receive_file,           /* can_receive_file */
   NULL,                                /* send_file */
   NULL,                                /* new_xfer */
-  nullprpl_offline_message,            /* offline_message */
+  matrixprpl_offline_message,            /* offline_message */
   NULL,                                /* whiteboard_prpl_ops */
   NULL,                                /* send_raw */
   NULL,                                /* roomlist_room_serialize */
@@ -1131,7 +1098,7 @@ static PurplePluginProtocolInfo prpl_info =
   NULL                                 /* add_buddies_with_invite */
 };
 
-static void nullprpl_init(PurplePlugin *plugin)
+static void matrixprpl_init(PurplePlugin *plugin)
 {
   /* see accountopt.h for information about user splits and protocol options */
   PurpleAccountUserSplit *split = purple_account_user_split_new(
@@ -1143,7 +1110,7 @@ static void nullprpl_init(PurplePlugin *plugin)
     "example",                /* pref name */
     "default");               /* default value */
 
-  purple_debug_info("nullprpl", "starting up\n");
+  purple_debug_info("matrixprpl", "starting up\n");
 
   prpl_info.user_splits = g_list_append(NULL, split);
   prpl_info.protocol_options = g_list_append(NULL, option);
@@ -1153,7 +1120,7 @@ static void nullprpl_init(PurplePlugin *plugin)
                     "ws",                  /* args: recipient and message */
                     PURPLE_CMD_P_DEFAULT,  /* priority */
                     PURPLE_CMD_FLAG_CHAT,
-                    "prpl-null",
+                    "prpl-matrix",
                     send_whisper,
                     "msg &lt;username&gt; &lt;message&gt;: send a private message, aka a whisper",
                     NULL);                 /* userdata */
@@ -1164,11 +1131,11 @@ static void nullprpl_init(PurplePlugin *plugin)
                                             g_free,      /* key free fn */
                                             NULL);       /* value free fn */
 
-  _null_protocol = plugin;
+  _matrix_protocol = plugin;
 }
 
-static void nullprpl_destroy(PurplePlugin *plugin) {
-  purple_debug_info("nullprpl", "shutting down\n");
+static void matrixprpl_destroy(PurplePlugin *plugin) {
+  purple_debug_info("matrixprpl", "shutting down\n");
 }
 
 
@@ -1182,24 +1149,24 @@ static PurplePluginInfo info =
   0,                                                       /* flags */
   NULL,                                                    /* dependencies */
   PURPLE_PRIORITY_DEFAULT,                                 /* priority */
-  NULLPRPL_ID,                                             /* id */
-  "Null - Testing Plugin",                                 /* name */
+  PRPL_ID,                                                 /* id */
+  "Matrix",                                                /* name */
   DISPLAY_VERSION,                                         /* version */
-  N_("Null Protocol Plugin"),                              /* summary */
-  N_("Null Protocol Plugin"),                              /* description */
-  NULL,                                                    /* author */
-  PURPLE_WEBSITE,                                          /* homepage */
+  N_("Matrix Protocol Plugin"),                            /* summary */
+  N_("Matrix Protocol Plugin"),                            /* description */
+  "Richard van der Hoff <richard@matrix.org>",             /* author */
+  MATRIX_WEBSITE,                                          /* homepage */
   NULL,                                                    /* load */
   NULL,                                                    /* unload */
-  nullprpl_destroy,                                        /* destroy */
+  matrixprpl_destroy,                                      /* destroy */
   NULL,                                                    /* ui_info */
   &prpl_info,                                              /* extra_info */
   NULL,                                                    /* prefs_info */
-  nullprpl_actions,                                        /* actions */
+  matrixprpl_actions,                                      /* actions */
   NULL,                                                    /* padding... */
   NULL,
   NULL,
   NULL,
 };
 
-PURPLE_INIT_PLUGIN(null, nullprpl_init, info);
+PURPLE_INIT_PLUGIN(matrix, matrixprpl_init, info);
