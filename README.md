@@ -3,7 +3,7 @@
 This project is a plugin for
 [libpurple](https://developer.pidgin.im/wiki/WhatIsLibpurple) which adds the
 ability to communicate with [matrix.org](http://matrix.org) homeservers to any
-libpurple-based clients (such as [Pidgin](www.pidgin.im)).
+libpurple-based clients (such as [Pidgin](http://www.pidgin.im)).
 
 # Installation
 
