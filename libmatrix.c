@@ -39,6 +39,7 @@
 #include "util.h"
 #include "version.h"
 
+#include "matrix-login.h"
 
 static PurplePlugin *_matrix_protocol = NULL;
 
@@ -328,48 +329,6 @@ static GHashTable *matrixprpl_chat_info_defaults(PurpleConnection *gc,
     return defaults;
 }
 
-static void matrixprpl_login(PurpleAccount *acct)
-{
-    PurpleConnection *gc = purple_account_get_connection(acct);
-    GList *offline_messages;
-
-    purple_debug_info("matrixprpl", "logging in %s\n", acct->username);
-
-    purple_connection_update_progress(gc, _("Connecting"),
-                                      0,   /* which connection step this is */
-                                      2);  /* total number of steps */
-
-    purple_connection_update_progress(gc, _("Connected"),
-                                      1,   /* which connection step this is */
-                                      2);  /* total number of steps */
-    purple_connection_set_state(gc, PURPLE_CONNECTED);
-
-    /* tell purple about everyone on our buddy list who's connected */
-    foreach_matrixprpl_gc(discover_status, gc, NULL);
-
-    /* notify other matrixprpl accounts */
-    foreach_matrixprpl_gc(report_status_change, gc, NULL);
-
-    /* fetch stored offline messages */
-    purple_debug_info("matrixprpl", "checking for offline messages for %s\n",
-                      acct->username);
-    offline_messages = g_hash_table_lookup(goffline_messages, acct->username);
-    while (offline_messages) {
-        GOfflineMessage *message = (GOfflineMessage *)offline_messages->data;
-        purple_debug_info("matrixprpl", "delivering offline message to %s: %s\n",
-                          acct->username, message->message);
-        serv_got_im(gc, message->from, message->message, message->flags,
-                    message->mtime);
-        offline_messages = g_list_next(offline_messages);
-
-        g_free(message->from);
-        g_free(message->message);
-        g_free(message);
-    }
-
-    g_list_free(offline_messages);
-    g_hash_table_remove(goffline_messages, &acct->username);
-}
 
 static void matrixprpl_close(PurpleConnection *gc)
 {
@@ -1100,6 +1059,9 @@ static PurplePluginProtocolInfo prpl_info =
 
 static void matrixprpl_init(PurplePlugin *plugin)
 {
+    purple_debug_info("matrixprpl", "starting up\n");
+
+#if 0
     /* see accountopt.h for information about user splits and protocol options */
     PurpleAccountUserSplit *split = purple_account_user_split_new(
         _("Example user split"),  /* text shown to user */
@@ -1110,10 +1072,9 @@ static void matrixprpl_init(PurplePlugin *plugin)
         "example",                /* pref name */
         "default");               /* default value */
 
-    purple_debug_info("matrixprpl", "starting up\n");
-
     prpl_info.user_splits = g_list_append(NULL, split);
     prpl_info.protocol_options = g_list_append(NULL, option);
+#endif
 
     /* register whisper chat command, /msg */
     purple_cmd_register("msg",

@@ -6,7 +6,7 @@ CFLAGS+=-I/usr/include/libpurple -DPURPLE_PLUGINS $(GLIB_CFLAGS)
 CFLAGS+=-fPIC -DPIC
 CFLAGS+=-Wall -g -O0
 
-OBJECTS=libmatrix.o
+OBJECTS=libmatrix.o matrix-api.o matrix-login.o
 TARGET=libmatrix.so
 
 all: $(TARGET)

@@ -1,5 +1,5 @@
 /**
- * Matrix plugin for libpurple/Pidgin
+ * Implementation of the matrix login process
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,28 +16,14 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111-1301  USA
  */
 
-#ifndef LIBMATRIX_H
-#define LIBMATRIX_H
+#ifndef MATRIX_LOGIN_H
+#define MATRIX_LOGIN_H
 
-#include <glib.h>
+#include "account.h"
 
-/* stub out the gettext macros for now */
-#define _(a) (a)
-#define N_(a) (a)
-
-/* data for our 'about' box */
-#define DISPLAY_VERSION "1.0"
-#define MATRIX_WEBSITE "http://matrix.org"
-
-/* our protocol ID string */
-#define PRPL_ID "prpl-matrix"
-
-typedef struct _MatrixAccount {
-    struct _PurpleAccount *pa;
-    struct _PurpleConnection *pc;
-    gchar *homeserver;      /* hostname (:port) of the homeserver */
-    gchar *access_token;    /* access token corresponding to our user */
-} MatrixAccount;
-
+/**
+ * Set off the login process
+ */
+void matrixprpl_login(PurpleAccount *acct);
 
 #endif
