@@ -59,19 +59,6 @@ typedef struct {
 } GcFuncData;
 
 /*
- * stores offline messages that haven't been delivered yet. maps username
- * (char *) to GList * of GOfflineMessages. initialized in matrixprpl_init.
- */
-GHashTable* goffline_messages = NULL;
-
-typedef struct {
-    char *from;
-    char *message;
-    time_t mtime;
-    PurpleMessageFlags flags;
-} GOfflineMessage;
-
-/*
  * helpers
  */
 static PurpleConnection *get_matrixprpl_gc(const char *username) {
@@ -315,10 +302,7 @@ static int matrixprpl_send_im(PurpleConnection *gc, const char *who,
                               const char *message, PurpleMessageFlags flags)
 {
     const char *from_username = gc->account->username;
-    PurpleMessageFlags receive_flags = ((flags & ~PURPLE_MESSAGE_SEND)
-                                        | PURPLE_MESSAGE_RECV);
     PurpleAccount *to_acct = purple_accounts_find(who, PRPL_ID);
-    PurpleConnection *to;
 
     purple_debug_info("matrixprpl", "sending message from %s to %s: %s\n",
                       from_username, who, message);
@@ -333,28 +317,6 @@ static int matrixprpl_send_im(PurpleConnection *gc, const char *who,
         purple_conv_present_error(who, gc->account, msg);
         g_free(msg);
         return 0;
-    }
-
-    /* is the recipient online? */
-    to = get_matrixprpl_gc(who);
-    if (to) {  /* yes, send */
-        serv_got_im(to, from_username, message, receive_flags, time(NULL));
-
-    } else {  /* nope, store as an offline message */
-        GOfflineMessage *offline_message;
-        GList *messages;
-
-        purple_debug_info("matrixprpl",
-                          "%s is offline, sending as offline message\n", who);
-        offline_message = g_new0(GOfflineMessage, 1);
-        offline_message->from = g_strdup(from_username);
-        offline_message->message = g_strdup(message);
-        offline_message->mtime = time(NULL);
-        offline_message->flags = receive_flags;
-
-        messages = g_hash_table_lookup(goffline_messages, who);
-        messages = g_list_append(messages, offline_message);
-        g_hash_table_insert(goffline_messages, g_strdup(who), messages);
     }
 
     return 1;
@@ -1055,12 +1017,6 @@ static void matrixprpl_init(PurplePlugin *plugin)
                         send_whisper,
                         "msg &lt;username&gt; &lt;message&gt;: send a private message, aka a whisper",
                         NULL);                 /* userdata */
-
-    /* get ready to store offline messages */
-    goffline_messages = g_hash_table_new_full(g_str_hash,  /* hash fn */
-                                              g_str_equal, /* key comparison fn */
-                                              g_free,      /* key free fn */
-                                              NULL);       /* value free fn */
 
     _matrix_protocol = plugin;
 }

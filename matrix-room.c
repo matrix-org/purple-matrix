@@ -155,8 +155,6 @@ GList *matrixprpl_chat_info(PurpleConnection *gc)
 {
     struct proto_chat_entry *pce; /* defined in prpl.h */
 
-    purple_debug_info("matrixprpl", "returning chat setting 'room_id'\n");
-
     pce = g_new0(struct proto_chat_entry, 1);
     pce->label = _("Chat _room");
     pce->identifier = "room_id";

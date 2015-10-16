@@ -36,14 +36,89 @@
 /* TODO: make this configurable */
 #define MATRIX_HOMESERVER "www.sw1v.org"
 
+/* TODO: move this out */
+typedef struct _RoomEventParserData {
+	MatrixAccount *acct;
+	const gchar *room_id;
+	JsonObject *event_map;
+} RoomEventParserData;
+
+static void parse_timeline_event(JsonArray *timeline,
+		guint state_idx, JsonNode *timeline_entry, gpointer user_data)
+{
+	RoomEventParserData *data = user_data;
+    MatrixAccount *ma = data->acct;
+    JsonObject *event_map = data->event_map;
+    const gchar *room_id = data->room_id;
+    const gchar *event_id, *event_type, *msg_body, *sender;
+    JsonObject *json_event_obj, *json_content_obj;
+    PurpleMessageFlags flags;
+    gint64 timestamp;
+
+    event_id = matrix_json_node_get_string(timeline_entry);
+    if(event_id == NULL) {
+    	purple_debug_warning("prplmatrix", "non-string event_id");
+    	return;
+    }
+
+    json_event_obj = matrix_json_object_get_object_member(
+    		event_map, event_id);
+    if(json_event_obj == NULL) {
+    	purple_debug_warning("prplmatrix", "unknown event_id %s", event_id);
+		return;
+    }
+
+    event_type = matrix_json_object_get_string_member(
+    		json_event_obj, "type");
+    json_content_obj = matrix_json_object_get_object_member(
+    		json_event_obj, "content");
+    if(event_type == NULL || json_content_obj == NULL)
+    	return;
+
+    if(strcmp(event_type, "m.room.message") != 0) {
+    	purple_debug_info("prplmatrix", "ignoring unknown room event %s",
+    			event_type);
+    	return;
+    }
+
+    msg_body = matrix_json_object_get_string_member(json_content_obj, "body");
+    if(msg_body == NULL) {
+    	purple_debug_warning("prplmatrix", "no body in message event %s",
+    			event_id);
+    	return;
+    }
+
+    sender = matrix_json_object_get_string_member(json_event_obj, "sender");
+    if(sender == NULL) {
+    	sender = "<unknown>";
+    }
+
+    timestamp = matrix_json_object_get_int_member(json_event_obj,
+    		"origin_server_ts");
+
+    flags = PURPLE_MESSAGE_RECV;
+
+    purple_debug_info("prplmatrix", "got message %s in %s\n", msg_body, room_id);
+    serv_got_chat_in(ma->pc, g_str_hash(room_id), sender, flags,
+    		msg_body, timestamp / 1000);
+}
+
+static void parse_timeline_events(MatrixAccount *acct,
+		const gchar *room_id,
+		JsonArray *events, JsonObject* event_map)
+{
+	RoomEventParserData data = {acct, room_id, event_map};
+    json_array_foreach_element(events, parse_timeline_event, &data);
+}
+
 /**
  * handle a room within the initial sync response
  */
 static void matrixprpl_handle_initial_sync_room(
 		const gchar *room_id, JsonObject *room_data, MatrixAccount *ma)
 {
-    JsonObject *state_object, *event_map;
-	JsonArray *state_array;
+    JsonObject *state_object, *timeline_object, *event_map;
+	JsonArray *state_array, *timeline_array;
     const gchar *room_name;
     PurpleConversation *conv;
     PurpleChat *chat;
@@ -51,11 +126,11 @@ static void matrixprpl_handle_initial_sync_room(
     MatrixRoomStateEventTable *state_table;
     
     event_map = matrix_json_object_get_object_member(room_data, "event_map");
-    state_object = matrix_json_object_get_object_member(room_data, "state");
-    state_array = matrix_json_object_get_array_member(state_object, "events");
     
     /* parse the room state */
     state_table = g_hash_table_new(g_str_hash, g_str_equal); /* TODO: free */
+    state_object = matrix_json_object_get_object_member(room_data, "state");
+    state_array = matrix_json_object_get_array_member(state_object, "events");
     if(state_array != NULL)
     	matrix_room_parse_state_events(state_table, state_array, event_map);
 
@@ -87,6 +162,12 @@ static void matrixprpl_handle_initial_sync_room(
     conv = serv_got_joined_chat(ma->pc, g_str_hash(room_id), room_id);
     purple_conversation_set_data(conv, "room_id", g_strdup(room_id)); /* TODO: free */
     purple_conversation_set_data(conv, "state", state_table);
+
+    timeline_object = matrix_json_object_get_object_member(
+    		room_data, "timeline");
+    timeline_array = matrix_json_object_get_array_member(
+    		timeline_object, "events");
+    parse_timeline_events(ma, room_id, timeline_array, event_map);
 }
 
 
@@ -174,7 +255,7 @@ static void matrixprpl_sync_complete(MatrixAccount *ma,
     }
 
     purple_connection_update_progress(ma->pc, _("Connected"), 2, 3);
-    purple_connection_set_state(ma->pc, PURPLE_CONNECTED);
+    purple_connection_set_state(ma->pa->gc, PURPLE_CONNECTED);
 
     matrixprpl_handle_initial_sync(ma, body);
 }

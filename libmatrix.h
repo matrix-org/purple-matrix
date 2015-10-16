@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111-1301  USA
- */
+  */
 
 #ifndef LIBMATRIX_H
 #define LIBMATRIX_H
@@ -37,7 +37,6 @@ typedef struct _MatrixAccount {
     struct _PurpleConnection *pc;
     gchar *homeserver;      /* hostname (:port) of the homeserver */
     gchar *access_token;    /* access token corresponding to our user */
-    GList rooms;            /* a list of MatrixRooms */
 } MatrixAccount;
 
 #endif

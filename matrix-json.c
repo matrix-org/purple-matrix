@@ -31,6 +31,16 @@ const gchar *matrix_json_node_get_string(JsonNode *node)
 	return json_node_get_string(node);
 }
 
+gint64 matrix_json_node_get_int(JsonNode *node)
+{
+	if(node == NULL)
+		return 0;
+	if(JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
+		return 0;
+	return json_node_get_int(node);
+}
+
+
 JsonObject *matrix_json_node_get_object (JsonNode *node)
 {
 	if(node == NULL)
@@ -71,6 +81,15 @@ const gchar *matrix_json_object_get_string_member(JsonObject  *object,
 	member = matrix_json_object_get_member(object, member_name);
     return matrix_json_node_get_string(member);
 }
+
+gint64 matrix_json_object_get_int_member(JsonObject  *object,
+		const gchar *member_name)
+{
+	JsonNode *member;
+	member = matrix_json_object_get_member(object, member_name);
+    return matrix_json_node_get_int(member);
+}
+
 
 JsonObject *matrix_json_object_get_object_member(JsonObject  *object,
 		const gchar *member_name)

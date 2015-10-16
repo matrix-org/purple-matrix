@@ -31,6 +31,7 @@
 
 /* node - returns NULL if node == NULL or *node is of the wrong type */
 const gchar *matrix_json_node_get_string(JsonNode *node);
+gint64 matrix_json_node_get_int(JsonNode *node);
 JsonObject *matrix_json_node_get_object(JsonNode *node);
 JsonArray *matrix_json_node_get_array(JsonNode *node);
 
@@ -42,6 +43,8 @@ JsonNode *matrix_json_object_get_member(JsonObject *object,
                                         const gchar *member_name);
 const gchar *matrix_json_object_get_string_member(JsonObject *object,
                                                   const gchar *member_name);
+gint64 matrix_json_object_get_int_member(JsonObject *object,
+		const gchar *member_name);
 JsonObject *matrix_json_object_get_object_member(JsonObject *object,
                                                  const gchar *member_name);
 JsonArray *matrix_json_object_get_array_member(JsonObject *object,
