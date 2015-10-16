@@ -30,13 +30,14 @@ struct _PurpleConnection;
 typedef GHashTable MatrixRoomStateEventTable;
 
 struct _JsonArray;
+struct _JsonObject;
 
 
 /**
  * Parse a json list of room state into a MatrixRoomStateEventTable
  */
 void matrix_room_parse_state_events(MatrixRoomStateEventTable *state_table,
-		struct _JsonArray *state_array);
+		struct _JsonArray *state_array, struct _JsonObject *event_map);
 
 
 /**

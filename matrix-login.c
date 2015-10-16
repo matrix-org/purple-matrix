@@ -34,37 +34,30 @@
 #include "matrix-room.h"
 
 /* TODO: make this configurable */
-#define MATRIX_HOMESERVER "matrix.org"
+#define MATRIX_HOMESERVER "www.sw1v.org"
 
 /**
- * handle a room within the initialSync response
+ * handle a room within the initial sync response
  */
-static void matrixprpl_handle_initialsync_room(JsonArray *rooms,
-                                               guint room_idx,
-                                               JsonNode *room,
-                                               gpointer user_data)
+static void matrixprpl_handle_initial_sync_room(
+		const gchar *room_id, JsonObject *room_data, MatrixAccount *ma)
 {
-    MatrixAccount *ma = (MatrixAccount *)user_data;
-    JsonObject *room_obj;
-    JsonArray *state_array;
-    const gchar *room_id;
+    JsonObject *state_object, *event_map;
+	JsonArray *state_array;
     const gchar *room_name;
     PurpleConversation *conv;
     PurpleChat *chat;
     PurpleGroup *group;
     MatrixRoomStateEventTable *state_table;
     
-    /* TODO: error handling */
-    room_obj = matrix_json_node_get_object(room);
-    room_id = matrix_json_object_get_string_member(room_obj, "room_id");
-    state_array = matrix_json_object_get_array_member(room_obj, "state");
+    event_map = matrix_json_object_get_object_member(room_data, "event_map");
+    state_object = matrix_json_object_get_object_member(room_data, "state");
+    state_array = matrix_json_object_get_array_member(state_object, "events");
     
-    purple_debug_info("matrixprpl", "got room %s\n", room_id);
-
     /* parse the room state */
     state_table = g_hash_table_new(g_str_hash, g_str_equal); /* TODO: free */
     if(state_array != NULL)
-    	matrix_room_parse_state_events(state_table, state_array);
+    	matrix_room_parse_state_events(state_table, state_array, event_map);
 
     /* todo: distinguish between 1-1 chats and group chats? */
 
@@ -100,16 +93,31 @@ static void matrixprpl_handle_initialsync_room(JsonArray *rooms,
 /**
  * handle the results of the intialSync request
  */
-static void matrixprpl_handle_initialsync(MatrixAccount *ma, JsonNode *body)
+static void matrixprpl_handle_initial_sync(MatrixAccount *ma, JsonNode *body)
 {
     JsonObject *rootObj;
-    JsonArray *rooms;
-    
-    /* TODO: error handling */
-    rootObj = json_node_get_object(body);
-    rooms = json_object_get_array_member(rootObj, "rooms");
+    JsonObject *rooms;
+    JsonObject *joined_rooms;
+    GList *room_ids, *elem;
 
-    json_array_foreach_element(rooms, matrixprpl_handle_initialsync_room, ma);
+    rootObj = matrix_json_node_get_object(body);
+    rooms = matrix_json_object_get_object_member(rootObj, "rooms");
+    joined_rooms = matrix_json_object_get_object_member(rooms, "joined");
+    
+    if(joined_rooms == NULL) {
+    	purple_debug_warning("matrixprpl", "didn't find joined rooms list\n");
+    	return;
+    }
+
+    room_ids = json_object_get_members(joined_rooms);
+    for(elem = room_ids; elem; elem = elem->next) {
+    	const gchar *room_id = elem->data;
+    	JsonObject *room_data = matrix_json_object_get_object_member(
+    			joined_rooms, room_id);
+        purple_debug_info("matrixprpl", "got room %s\n", room_id);
+    	matrixprpl_handle_initial_sync_room(room_id, room_data, ma);
+    }
+    g_list_free(room_ids);
     
 #if 0
     /* tell purple about everyone on our buddy list who's connected */
@@ -141,7 +149,7 @@ static void matrixprpl_handle_initialsync(MatrixAccount *ma, JsonNode *body)
 }
 
 
-static void matrixprpl_initialsync_complete(MatrixAccount *ma,
+static void matrixprpl_sync_complete(MatrixAccount *ma,
                                             gpointer user_data,
                                             int http_response_code,
                                             const gchar *http_response_msg,
@@ -150,7 +158,7 @@ static void matrixprpl_initialsync_complete(MatrixAccount *ma,
                                             const gchar *error_message)
 {
     if (error_message) {
-        purple_debug_info("matrixprpl", "initialsync gave error %s\n",
+        purple_debug_info("matrixprpl", "initial sync gave error %s\n",
                           error_message);
         purple_connection_error_reason(ma->pc,
             PURPLE_CONNECTION_ERROR_NETWORK_ERROR, error_message);
@@ -158,7 +166,7 @@ static void matrixprpl_initialsync_complete(MatrixAccount *ma,
     }
 
     if (http_response_code >= 400) {
-        purple_debug_info("matrixprpl", "initialsync gave response %s: %s\n",
+        purple_debug_info("matrixprpl", "initial sync gave response %s: %s\n",
                           http_response_msg, body_start);
         purple_connection_error_reason(ma->pc,
                                        PURPLE_CONNECTION_ERROR_OTHER_ERROR, http_response_msg);
@@ -168,17 +176,17 @@ static void matrixprpl_initialsync_complete(MatrixAccount *ma,
     purple_connection_update_progress(ma->pc, _("Connected"), 2, 3);
     purple_connection_set_state(ma->pc, PURPLE_CONNECTED);
 
-    matrixprpl_handle_initialsync(ma, body);
+    matrixprpl_handle_initial_sync(ma, body);
 }
                 
 /*
- * do the initialsync after login, to get room state
+ * do the initial sync after login, to get room state
  */
-static void matrixprpl_start_initialsync(MatrixAccount *ma)
+static void matrixprpl_start_sync(MatrixAccount *ma)
 {
     purple_connection_set_state(ma->pc, PURPLE_CONNECTING);
     purple_connection_update_progress(ma->pc, _("Initial Sync"), 1, 3);
-    matrix_initialsync(ma, matrixprpl_initialsync_complete, ma);
+    matrix_sync(ma, matrixprpl_sync_complete, ma);
 }
 
 void matrixprpl_login(PurpleAccount *acct)
@@ -201,5 +209,5 @@ void matrixprpl_login(PurpleAccount *acct)
      */
     ma->access_token = g_strdup(acct->username);
 
-    matrixprpl_start_initialsync(ma);
+    matrixprpl_start_sync(ma);
 }

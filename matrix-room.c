@@ -29,31 +29,45 @@ typedef struct _MatrixRoomStateEvent {
     JsonObject *content;
 } MatrixRoomStateEvent;
 
+typedef struct _RoomStateParserData {
+	JsonObject *event_map;
+	MatrixRoomStateEventTable *state_table;
+} RoomStateParserData;
 
 
 /**
- * handle a state entry for a room
+ * handle a state event for a room
  */
 static void _matrix_room_handle_roomstate(JsonArray *state,
 		guint state_idx, JsonNode *state_entry, gpointer user_data)
 {
-    MatrixRoomStateEventTable *state_table =
-    		(MatrixRoomStateEventTable *)user_data;
+	RoomStateParserData *data = user_data;
+    MatrixRoomStateEventTable *state_table = data->state_table;
+    JsonObject *event_map = data->event_map;
     GHashTable *state_table_entry;
-    JsonObject *json_state_obj, *json_content_obj;
+    JsonObject *json_event_obj, *json_content_obj;
     MatrixRoomStateEvent *event;
-    const gchar *event_type, *state_key;
+    const gchar *event_id, *event_type, *state_key;
 
-    json_state_obj = matrix_json_node_get_object(state_entry);
-    if(json_state_obj == NULL)
+    event_id = matrix_json_node_get_string(state_entry);
+    if(event_id == NULL) {
+    	purple_debug_warning("prplmatrix", "non-string event_id");
     	return;
+    }
+
+    json_event_obj = matrix_json_object_get_object_member(
+    		event_map, event_id);
+    if(json_event_obj == NULL) {
+    	purple_debug_warning("prplmatrix", "unknown event_id %s", event_id);
+		return;
+    }
 
     event_type = matrix_json_object_get_string_member(
-    		json_state_obj, "type");
+    		json_event_obj, "type");
     state_key = matrix_json_object_get_string_member(
-    		json_state_obj, "state_key");
+    		json_event_obj, "state_key");
     json_content_obj = matrix_json_object_get_object_member(
-    		json_state_obj, "content");
+    		json_event_obj, "content");
     if(event_type == NULL || state_key == NULL || json_content_obj == NULL)
     	return;
 
@@ -73,10 +87,11 @@ static void _matrix_room_handle_roomstate(JsonArray *state,
 
 
 void matrix_room_parse_state_events(MatrixRoomStateEventTable *state_table,
-		JsonArray *state_array)
+		JsonArray *state_array, JsonObject *event_map)
 {
+	RoomStateParserData data = {event_map, state_table};
     json_array_foreach_element(state_array, _matrix_room_handle_roomstate,
-    		state_table);
+    		&data);
 }
 
 static MatrixRoomStateEvent *matrix_room_get_state_event(

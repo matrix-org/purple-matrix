@@ -167,23 +167,20 @@ static PurpleUtilFetchUrlData *matrix_api_start(const gchar *url,
     data->user_data = user_data;
 
     /* TODO: implement the per-account proxy settings */
-
-    purple_debug_info("matrixprpl", "sending HTTP request to %s", url);
-    
     return purple_util_fetch_url_request_len(url, TRUE, NULL, TRUE, NULL,
                                              TRUE, max_len,
                                              matrix_api_complete, data);
 }
 
 
-PurpleUtilFetchUrlData *matrix_initialsync(MatrixAccount *account,
+PurpleUtilFetchUrlData *matrix_sync(MatrixAccount *account,
                                            MatrixApiCallback callback,
                                            gpointer user_data)
 {
     gchar *url;
     PurpleUtilFetchUrlData *fetch_data;
     
-    url = g_strdup_printf("https://%s/_matrix/client/api/v1/initialSync?"
+    url = g_strdup_printf("https://%s/_matrix/client/v2_alpha/sync?"
                           "access_token=%s",
                           account->homeserver, account->access_token);
 
