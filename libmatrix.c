@@ -40,6 +40,7 @@
 #include "version.h"
 
 #include "matrix-login.h"
+#include "matrix-room.h"
 
 static PurplePlugin *_matrix_protocol = NULL;
 
@@ -304,32 +305,6 @@ static GList *matrixprpl_blist_node_menu(PurpleBlistNode *node) {
     }
 }
 
-static GList *matrixprpl_chat_info(PurpleConnection *gc) {
-    struct proto_chat_entry *pce; /* defined in prpl.h */
-
-    purple_debug_info("matrixprpl", "returning chat setting 'room'\n");
-
-    pce = g_new0(struct proto_chat_entry, 1);
-    pce->label = _("Chat _room");
-    pce->identifier = "room";
-    pce->required = TRUE;
-
-    return g_list_append(NULL, pce);
-}
-
-static GHashTable *matrixprpl_chat_info_defaults(PurpleConnection *gc,
-                                                 const char *room) {
-    GHashTable *defaults;
-
-    purple_debug_info("matrixprpl", "returning chat default setting "
-                      "'room' = 'default'\n");
-
-    defaults = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
-    g_hash_table_insert(defaults, "room", g_strdup("default"));
-    return defaults;
-}
-
-
 static void matrixprpl_close(PurpleConnection *gc)
 {
     /* notify other matrixprpl accounts */
@@ -593,7 +568,7 @@ static void joined_chat(PurpleConvChat *from, PurpleConvChat *to,
 
 static void matrixprpl_join_chat(PurpleConnection *gc, GHashTable *components) {
     const char *username = gc->account->username;
-    const char *room = g_hash_table_lookup(components, "room");
+    const char *room = g_hash_table_lookup(components, "room_id");
     int chat_id = g_str_hash(room);
     purple_debug_info("matrixprpl", "%s is joining chat room %s\n", username, room);
 
@@ -635,11 +610,6 @@ static void matrixprpl_reject_chat(PurpleConnection *gc, GHashTable *components)
     g_free(message);
 }
 
-static char *matrixprpl_get_chat_name(GHashTable *components) {
-    const char *room = g_hash_table_lookup(components, "room");
-    purple_debug_info("matrixprpl", "reporting chat room name '%s'\n", room);
-    return g_strdup(room);
-}
 
 static void matrixprpl_chat_invite(PurpleConnection *gc, int id,
                                    const char *message, const char *who) {
@@ -1032,7 +1002,7 @@ static PurplePluginProtocolInfo prpl_info =
     matrixprpl_remove_group,               /* remove_group */
     NULL,                                /* get_cb_real_name */
     matrixprpl_set_chat_topic,             /* set_chat_topic */
-    NULL,                                /* find_blist_chat */
+    NULL,                                  /* find_blist_chat */
     matrixprpl_roomlist_get_list,          /* roomlist_get_list */
     matrixprpl_roomlist_cancel,            /* roomlist_cancel */
     matrixprpl_roomlist_expand_category,   /* roomlist_expand_category */

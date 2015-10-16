@@ -37,7 +37,7 @@ typedef struct _MatrixAccount {
     struct _PurpleConnection *pc;
     gchar *homeserver;      /* hostname (:port) of the homeserver */
     gchar *access_token;    /* access token corresponding to our user */
+    GList rooms;            /* a list of MatrixRooms */
 } MatrixAccount;
-
 
 #endif

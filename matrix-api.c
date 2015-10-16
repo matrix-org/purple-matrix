@@ -18,9 +18,14 @@
 
 #include "matrix-api.h"
 
+/* std lib */
 #include <string.h>
 
-#include "debug.h"
+/* json-glib */
+#include <json-glib/json-glib.h>
+
+/* libpurple */
+#include <debug.h>
 
 #include "libmatrix.h"
 
@@ -31,7 +36,58 @@ typedef struct {
 } MatrixApiRequestData;
 
 
-/*
+/**
+ * Parse the body of an API response
+ *
+ * @param ret_data       pointer to the response data
+ * @param parser         returns a pointer to the JsonParser, or NULL if there
+ *                       is no body. Use g_object_unref() to release it.
+ * @param error_message  returns a pointer to an error message on error. Do not
+ *                       free this.
+ * @return a pointer to the start of the body, or NULL if there is no body
+ */
+static const gchar *matrix_api_parse_body(const gchar *ret_data,
+                                          JsonParser **parser,
+                                          const gchar **error_message)
+{
+    const gchar *body_pointer;
+    GError *err = NULL;
+
+    g_assert(parser != NULL);
+    g_assert(error_message != NULL);
+    
+    *parser = NULL;
+    *error_message = NULL;
+
+    /* find the start of the body */
+    body_pointer = strstr(ret_data, "\r\n\r\n");
+
+    if(body_pointer == NULL) {
+        /* no separator */
+        return NULL;
+    }
+
+    body_pointer += 4;
+    if(*body_pointer == '\0') {
+        /* empty body */
+        return NULL;
+    }
+    
+    /* we have a body - parse it as JSON */
+    *parser = json_parser_new();
+    if(!json_parser_load_from_data(*parser, body_pointer, -1, &err)) {
+        purple_debug_info("matrixprpl",
+                          "unable to parse JSON: %s\n",
+                          err->message);
+        *error_message = _("Error parsing response");
+        g_error_free(err);
+        return body_pointer;
+    }
+
+    return body_pointer;
+}
+
+/**
  * The callback we give to purple_util_fetch_url_request - does some
  * initial processing of the response
  */
@@ -44,8 +100,10 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
     MatrixApiRequestData *data = (MatrixApiRequestData *)user_data;
     int response_code = -1;
     gchar *response_message = NULL;
-    const gchar *body_pointer = NULL;
-
+    JsonParser *parser;
+    JsonNode *root;
+    const gchar *body_start;
+    
     if (!error_message) {
         /* parse the response line */
         gchar *response_line;
@@ -62,7 +120,7 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
             purple_debug_info("matrixprpl",
                               "unable to parse response line %s\n",
                               response_line);
-            error_message = "Error parsing response";
+            error_message = _("Error parsing response");
         } else {
             response_code = strtol(splits[1], NULL, 10);
             response_message = g_strdup(splits[2]);
@@ -72,20 +130,19 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
     }
 
     if (!error_message) {
-        /* find the gap between header and body */
-        body_pointer = strstr(ret_data, "\r\n\r\n");
-        if(body_pointer != NULL) {
-            body_pointer += 4;
-        } else {
-            body_pointer = ret_data + ret_len;
-        }
+        body_start = matrix_api_parse_body(ret_data, &parser, &error_message);
+        if(parser)
+            root = json_parser_get_root(parser);
     }
 
     (data->callback)(data->account, data->user_data,
-                     ret_data, ret_len,
                      response_code, response_message,
-                     body_pointer, error_message);
+                     body_start, root, error_message);
 
+    /* free the JSON parser, and all of the node structures */
+    if(parser)
+        g_object_unref(parser);
+    
     g_free(data);
     g_free(response_message);
 }
