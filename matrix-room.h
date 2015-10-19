@@ -21,27 +21,59 @@
 
 #include <glib.h>
 
+#include <json-glib/json-glib.h>
+
 #include "libmatrix.h"
 
-struct _PurpleConnection;
-
-/* The state event table is a hashtable which maps from event type to
- * another hashtable, which maps from state key to content, which is itself a
- * MatrixRoomStateEvent
- */
-typedef GHashTable MatrixRoomStateEventTable;
-
-struct _JsonObject;
+struct _PurpleConversation;
 
 /**
- * handle a room within the sync response
+ * Ensure the room is up to date in the buddy list (ie, it is present,
+ * and the alias is correct)
+ *
+ * @param conv   conversation info
  */
-void matrix_room_handle_sync(const gchar *room_id,
-        struct _JsonObject *room_data, MatrixAccount *ma);
+void matrix_room_update_buddy_list(struct _PurpleConversation *conv);
 
 /**
- * Figure out the best name for a room, from its state table
+ * If this is an active conversation, return it; otherwise, create it anew.
+ *
+ * @param ma       account associated with the chat
  */
-const char *matrix_room_get_name(MatrixRoomStateEventTable *state_table);
+struct _PurpleConversation *matrix_room_get_or_create_conversation(
+        MatrixAccount *ma, const gchar *room_id);
+
+/**
+ * handle a single timeline event for a room (such as a message)
+ *
+ * @param conv        info on the room
+ * @param event_id    id of the event
+ * @param event_type  type of the event (eg m.room.message)
+ * @param sender      sender of the event
+ * @param timestamp   timestamp at the origin server
+ * @param json_content_obj  the 'content' of the event.
+ */
+void matrix_room_handle_timeline_event(struct _PurpleConversation *conv,
+        const gchar *event_id, const gchar *event_type,
+        const gchar *sender, gint64 timestamp, JsonObject *json_content_obj);
+
+
+
+/*************************************************************************
+ *
+ * Room state handling
+ */
+
+/**
+ * Update the state table on a room
+ *
+ * @param conv        info on the room
+ * @param event_type  type of the event (eg m.room.name)
+ * @param state_key
+ */
+void matrix_room_update_state_table(struct _PurpleConversation *conv,
+        const gchar *event_type, const gchar *state_key,
+        JsonObject *json_content_obj);
+
 
 #endif
