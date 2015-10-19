@@ -30,7 +30,6 @@
 
 /* identifiers for purple_conversation_get/set_data */
 #define PURPLE_CONV_DATA_STATE "state"
-#define PURPLE_CONV_DATA_ID "room_id"
 
 /******************************************************************************
  *
@@ -39,7 +38,8 @@
 
 /* The state event table is a hashtable which maps from event type to
  * another hashtable, which maps from state key to content, which is itself a
- * MatrixRoomStateEvent
+ * MatrixRoomStateEvent.
+ *
  */
 typedef GHashTable MatrixRoomStateEventTable;
 
@@ -47,6 +47,22 @@ typedef struct _MatrixRoomStateEvent {
     JsonObject *content;
 } MatrixRoomStateEvent;
 
+
+/**
+ * create a new, empty, state table
+ */
+static MatrixRoomStateEventTable *_create_state_table()
+{
+    return g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
+            (GDestroyNotify) g_hash_table_destroy);
+}
+
+static void _free_room_state_event(MatrixRoomStateEvent *event)
+{
+    if(event->content)
+        json_object_unref(event->content);
+    g_free(event);
+}
 
 /**
  * Get the state table for a room
@@ -68,19 +84,20 @@ void matrix_room_update_state_table(PurpleConversation *conv,
     MatrixRoomStateEventTable *state_table;
     GHashTable *state_table_entry;
 
-    event = g_new0(MatrixRoomStateEvent, 1); /* TODO: free */
+    event = g_new0(MatrixRoomStateEvent, 1);
     event->content = json_content_obj;
-    json_object_ref(event->content); /* TODO: free */
+    json_object_ref(event->content);
 
     state_table = matrix_room_get_state_table(conv);
     state_table_entry = g_hash_table_lookup(state_table, event_type);
     if(state_table_entry == NULL) {
-        state_table_entry = g_hash_table_new(g_str_hash, g_str_equal); /* TODO: free */
-        g_hash_table_insert(state_table, g_strdup(event_type), state_table_entry); /* TODO: free */
+        state_table_entry = g_hash_table_new_full(g_str_hash, g_str_equal,
+                g_free, (GDestroyNotify)_free_room_state_event);
+        g_hash_table_insert(state_table, g_strdup(event_type),
+                state_table_entry);
     }
 
-    g_hash_table_insert(state_table_entry, g_strdup(state_key), event); /* TODO: free */
-    /* TODO: free old event if it existed */
+    g_hash_table_insert(state_table_entry, g_strdup(state_key), event);
 }
 
 /**
@@ -151,7 +168,6 @@ static const char *matrix_room_get_name(MatrixRoomStateEventTable *state_table)
 /*****************************************************************************/
 
 
-
 void matrix_room_handle_timeline_event(PurpleConversation *conv,
         const gchar *event_id, const gchar *event_type,
         const gchar *sender, gint64 timestamp, JsonObject *json_content_obj)
@@ -159,7 +175,7 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     const gchar *room_id, *msg_body;
     PurpleMessageFlags flags;
 
-    room_id = purple_conversation_get_data(conv, PURPLE_CONV_DATA_ID);
+    room_id = conv->name;
 
     if(strcmp(event_type, "m.room.message") != 0) {
         purple_debug_info("matrixprpl", "ignoring unknown room event %s\n",
@@ -203,13 +219,30 @@ PurpleConversation *matrix_room_get_or_create_conversation(
     conv = serv_got_joined_chat(ma->pc, g_str_hash(room_id), room_id);
 
     /* set our data on it */
-    purple_conversation_set_data(conv, PURPLE_CONV_DATA_ID, g_strdup(room_id));
-        /* TODO: free */
-
-    state_table = g_hash_table_new(g_str_hash, g_str_equal); /* TODO: free */
+    state_table = _create_state_table();
     purple_conversation_set_data(conv, PURPLE_CONV_DATA_STATE, state_table);
     return conv;
 }
+
+
+/**
+ * Leave a chat: notify the server that we are leaving, and (ultimately)
+ * free the memory structures
+ */
+void matrix_room_leave_chat(PurpleConversation *conv)
+{
+    MatrixRoomStateEventTable *state_table;
+
+    /* TODO: actually tell the server that we are leaving the chat, and only
+     * destroy the memory structures once we get a response from that.
+     *
+     * For now, we just free the state table.
+     */
+    state_table = matrix_room_get_state_table(conv);
+    g_hash_table_destroy(state_table);
+    purple_conversation_set_data(conv, PURPLE_CONV_DATA_STATE, NULL);
+}
+
 
 /**
  * Ensure the room is up to date in the buddy list (ie, it is present,
@@ -222,7 +255,7 @@ void matrix_room_update_buddy_list(PurpleConversation *conv)
     const gchar *room_id, *room_name;
     PurpleChat *chat;
 
-    room_id = purple_conversation_get_data(conv, PURPLE_CONV_DATA_ID);
+    room_id = conv->name;
 
     chat = purple_blist_find_chat(conv->account, room_id);
     if (!chat)
@@ -236,10 +269,8 @@ void matrix_room_update_buddy_list(PurpleConversation *conv)
             group = purple_group_new("Matrix");
             purple_blist_add_group(group, NULL);
         }
-        comp = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free); /* TODO:
-                                                                              * free? */
-        g_hash_table_insert(comp, PRPL_CHAT_INFO_ROOM_ID,
-                g_strdup(room_id)); /* TODO: free? */
+        comp = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
+        g_hash_table_insert(comp, PRPL_CHAT_INFO_ROOM_ID, g_strdup(room_id));
 
         /* we set the alias to the room id initially, then change it to
          * something more user-friendly below.
@@ -251,6 +282,3 @@ void matrix_room_update_buddy_list(PurpleConversation *conv)
     room_name = matrix_room_get_name(matrix_room_get_state_table(conv));
     purple_blist_alias_chat(chat, room_name);
 }
-
-
-

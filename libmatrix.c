@@ -94,6 +94,19 @@ static void matrixprpl_join_chat(PurpleConnection *gc, GHashTable *components)
 }
 
 
+/**
+ * handle leaving a chat: notify the server that we are leaving, and
+ * (ultimately) free the memory structures associated with it
+ */
+static void matrixprpl_chat_leave(PurpleConnection *gc, int id) {
+    PurpleConversation *conv = purple_find_chat(gc, id);
+    purple_debug_info("matrixprpl", "%s is leaving chat room %s\n",
+                      gc->account->username, conv->name);
+
+    matrix_room_leave_chat(conv);
+}
+
+
 /******************************************************************************
  * The following comes from the 'nullprpl' dummy protocol. TODO: clear this out
  * and keep only what we need.
@@ -611,27 +624,6 @@ static void matrixprpl_chat_invite(PurpleConnection *gc, int id,
             serv_got_chat_invite(to_acct->gc, room, username, message, components);
         }
     }
-}
-
-static void left_chat_room(PurpleConvChat *from, PurpleConvChat *to,
-                           int id, const char *room, gpointer userdata) {
-    if (from != to) {
-        /*  tell their chat window that we left */
-        purple_debug_info("matrixprpl", "%s sees that %s left chat room %s\n",
-                          to->nick, from->nick, room);
-        purple_conv_chat_remove_user(to,
-                                     from->nick,
-                                     NULL);  /* user-provided message, IRC style */
-    }
-}
-
-static void matrixprpl_chat_leave(PurpleConnection *gc, int id) {
-    PurpleConversation *conv = purple_find_chat(gc, id);
-    purple_debug_info("matrixprpl", "%s is leaving chat room %s\n",
-                      gc->account->username, conv->name);
-
-    /* tell everyone that we left */
-    foreach_gc_in_chat(left_chat_room, gc, id, NULL);
 }
 
 #if 0

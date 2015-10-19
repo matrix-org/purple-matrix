@@ -44,6 +44,12 @@ struct _PurpleConversation *matrix_room_get_or_create_conversation(
         MatrixAccount *ma, const gchar *room_id);
 
 /**
+ * Leave a chat: notify the server that we are leaving, and (ultimately)
+ * free the memory structures
+ */
+void matrix_room_leave_chat(struct _PurpleConversation *conv);
+
+/**
  * handle a single timeline event for a room (such as a message)
  *
  * @param conv        info on the room
