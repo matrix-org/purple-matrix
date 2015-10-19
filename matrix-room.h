@@ -21,6 +21,8 @@
 
 #include <glib.h>
 
+#include "libmatrix.h"
+
 struct _PurpleConnection;
 
 /* The state event table is a hashtable which maps from event type to
@@ -29,16 +31,13 @@ struct _PurpleConnection;
  */
 typedef GHashTable MatrixRoomStateEventTable;
 
-struct _JsonArray;
 struct _JsonObject;
 
-
 /**
- * Parse a json list of room state into a MatrixRoomStateEventTable
+ * handle a room within the sync response
  */
-void matrix_room_parse_state_events(MatrixRoomStateEventTable *state_table,
-		struct _JsonArray *state_array, struct _JsonObject *event_map);
-
+void matrix_room_handle_sync(const gchar *room_id,
+        struct _JsonObject *room_data, MatrixAccount *ma);
 
 /**
  * Figure out the best name for a room, from its state table

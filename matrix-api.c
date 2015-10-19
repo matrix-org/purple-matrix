@@ -174,22 +174,29 @@ static PurpleUtilFetchUrlData *matrix_api_start(const gchar *url,
 
 
 PurpleUtilFetchUrlData *matrix_sync(MatrixAccount *account,
-                                           MatrixApiCallback callback,
-                                           gpointer user_data)
+        const gchar *since,
+        MatrixApiCallback callback,
+        gpointer user_data)
 {
-    gchar *url;
+    GString *url;
     PurpleUtilFetchUrlData *fetch_data;
     
-    url = g_strdup_printf("https://%s/_matrix/client/v2_alpha/sync?"
-                          "access_token=%s",
-                          account->homeserver, account->access_token);
+    url = g_string_new("");
+    g_string_append_printf(url,
+            "https://%s/_matrix/client/v2_alpha/sync?access_token=%s",
+            account->homeserver, account->access_token);
+
+    if(since != NULL)
+        g_string_append_printf(url, "&timeout=30000&since=%s", since);
+
+    purple_debug_info("matrixprpl", "request %s\n", url->str);
 
     /* XXX: stream the response, so that we don't need to allocate so much
      * memory? But it's JSON
      */
-    fetch_data = matrix_api_start(url, account, callback, user_data,
+    fetch_data = matrix_api_start(url->str, account, callback, user_data,
                                   10*1024*1024);
-    g_free(url);
+    g_string_free(url, TRUE);
     
     return fetch_data;
 }

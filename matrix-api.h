@@ -58,11 +58,13 @@ typedef void (*MatrixApiCallback)(MatrixAccount *account,
  * call the /sync API
  *
  * @param account    The MatrixAccount for which to make the request
+ * @param since      If non-null, the batch token to start sync from
  * @param callback   Function to be called when the request completes
  * @param user_data  Opaque data to be passed to the callback
  */
 PurpleUtilFetchUrlData *matrix_sync(MatrixAccount *account,
-                                    MatrixApiCallback callback,
-                                    gpointer user_data);
+        const gchar *since,
+        MatrixApiCallback callback,
+        gpointer user_data);
 
 #endif
