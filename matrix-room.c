@@ -30,8 +30,8 @@ typedef struct _MatrixRoomStateEvent {
 } MatrixRoomStateEvent;
 
 typedef struct _RoomStateParserData {
-	JsonObject *event_map;
-	MatrixRoomStateEventTable *state_table;
+    JsonObject *event_map;
+    MatrixRoomStateEventTable *state_table;
 } RoomStateParserData;
 
 
@@ -39,9 +39,9 @@ typedef struct _RoomStateParserData {
  * handle a state event for a room
  */
 static void _matrix_room_handle_roomstate(JsonArray *state,
-		guint state_idx, JsonNode *state_entry, gpointer user_data)
+        guint state_idx, JsonNode *state_entry, gpointer user_data)
 {
-	RoomStateParserData *data = user_data;
+    RoomStateParserData *data = user_data;
     MatrixRoomStateEventTable *state_table = data->state_table;
     JsonObject *event_map = data->event_map;
     GHashTable *state_table_entry;
@@ -51,25 +51,25 @@ static void _matrix_room_handle_roomstate(JsonArray *state,
 
     event_id = matrix_json_node_get_string(state_entry);
     if(event_id == NULL) {
-    	purple_debug_warning("prplmatrix", "non-string event_id");
-    	return;
+        purple_debug_warning("prplmatrix", "non-string event_id");
+        return;
     }
 
     json_event_obj = matrix_json_object_get_object_member(
-    		event_map, event_id);
+            event_map, event_id);
     if(json_event_obj == NULL) {
-    	purple_debug_warning("prplmatrix", "unknown event_id %s", event_id);
-		return;
+        purple_debug_warning("prplmatrix", "unknown event_id %s", event_id);
+        return;
     }
 
     event_type = matrix_json_object_get_string_member(
-    		json_event_obj, "type");
+            json_event_obj, "type");
     state_key = matrix_json_object_get_string_member(
-    		json_event_obj, "state_key");
+            json_event_obj, "state_key");
     json_content_obj = matrix_json_object_get_object_member(
-    		json_event_obj, "content");
+            json_event_obj, "content");
     if(event_type == NULL || state_key == NULL || json_content_obj == NULL)
-    	return;
+        return;
 
     event = g_new0(MatrixRoomStateEvent, 1); /* TODO: free */
     event->content = json_content_obj;
@@ -87,66 +87,66 @@ static void _matrix_room_handle_roomstate(JsonArray *state,
 
 
 void matrix_room_parse_state_events(MatrixRoomStateEventTable *state_table,
-		JsonArray *state_array, JsonObject *event_map)
+        JsonArray *state_array, JsonObject *event_map)
 {
-	RoomStateParserData data = {event_map, state_table};
+    RoomStateParserData data = {event_map, state_table};
     json_array_foreach_element(state_array, _matrix_room_handle_roomstate,
-    		&data);
+            &data);
 }
 
 static MatrixRoomStateEvent *matrix_room_get_state_event(
-		MatrixRoomStateEventTable *state_table, const gchar *event_type,
-		const gchar *state_key)
+        MatrixRoomStateEventTable *state_table, const gchar *event_type,
+        const gchar *state_key)
 {
-	GHashTable *tmp;
+    GHashTable *tmp;
 
-	tmp = (GHashTable *) g_hash_table_lookup(state_table, event_type);
-	if(tmp == NULL)
-		return NULL;
+    tmp = (GHashTable *) g_hash_table_lookup(state_table, event_type);
+    if(tmp == NULL)
+        return NULL;
 
-	return (MatrixRoomStateEvent *)g_hash_table_lookup(tmp, state_key);
+    return (MatrixRoomStateEvent *)g_hash_table_lookup(tmp, state_key);
 }
 
 
 const char *matrix_room_get_name(MatrixRoomStateEventTable *state_table)
 {
-	GHashTable *tmp;
-	MatrixRoomStateEvent *event;
+    GHashTable *tmp;
+    MatrixRoomStateEvent *event;
 
-	/* start by looking for the official room name */
-	event = matrix_room_get_state_event(state_table, "m.room.name", "");
-	if(event != NULL) {
-		const gchar *tmpname = matrix_json_object_get_string_member(
-				event->content, "name");
-		if(tmpname != NULL) {
-		    purple_debug_info("matrixprpl", "got room name %s\n", tmpname);
-			return tmpname;
-		}
+    /* start by looking for the official room name */
+    event = matrix_room_get_state_event(state_table, "m.room.name", "");
+    if(event != NULL) {
+        const gchar *tmpname = matrix_json_object_get_string_member(
+                event->content, "name");
+        if(tmpname != NULL) {
+            purple_debug_info("matrixprpl", "got room name %s\n", tmpname);
+            return tmpname;
+        }
     }
 
-	/* look for an alias */
-	tmp = (GHashTable *) g_hash_table_lookup(state_table, "m.room.aliases");
-	if(tmp != NULL) {
-		GHashTableIter iter;
-		g_hash_table_iter_init(&iter, tmp);
-		gpointer key, value;
-		while(g_hash_table_iter_next(&iter, &key, &value)) {
-			MatrixRoomStateEvent *event = value;
-			JsonArray *array = matrix_json_object_get_array_member(
-					event->content, "aliases");
-			if(array != NULL && json_array_get_length(array) > 0) {
-				const gchar *tmpname = matrix_json_array_get_string_element(array, 0);
-				if(tmpname != NULL) {
-				    purple_debug_info("matrixprpl", "got room alias %s\n",
-				    		tmpname);
-					return tmpname;
-				}
-			}
-		}
-	}
+    /* look for an alias */
+    tmp = (GHashTable *) g_hash_table_lookup(state_table, "m.room.aliases");
+    if(tmp != NULL) {
+        GHashTableIter iter;
+        g_hash_table_iter_init(&iter, tmp);
+        gpointer key, value;
+        while(g_hash_table_iter_next(&iter, &key, &value)) {
+            MatrixRoomStateEvent *event = value;
+            JsonArray *array = matrix_json_object_get_array_member(
+                    event->content, "aliases");
+            if(array != NULL && json_array_get_length(array) > 0) {
+                const gchar *tmpname = matrix_json_array_get_string_element(array, 0);
+                if(tmpname != NULL) {
+                    purple_debug_info("matrixprpl", "got room alias %s\n",
+                            tmpname);
+                    return tmpname;
+                }
+            }
+        }
+    }
 
-	/* TODO: look for room members, and pick a name based on that */
+    /* TODO: look for room members, and pick a name based on that */
 
-	return "unknown";
+    return "unknown";
 }
 

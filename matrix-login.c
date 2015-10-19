@@ -46,7 +46,7 @@ typedef struct _RoomEventParserData {
 static void parse_timeline_event(JsonArray *timeline,
 		guint state_idx, JsonNode *timeline_entry, gpointer user_data)
 {
-	RoomEventParserData *data = user_data;
+    RoomEventParserData *data = user_data;
     MatrixAccount *ma = data->acct;
     JsonObject *event_map = data->event_map;
     const gchar *room_id = data->room_id;
