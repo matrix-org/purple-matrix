@@ -32,6 +32,9 @@
 /* our protocol ID string */
 #define PRPL_ID "prpl-matrix"
 
+/* identifiers for the chat info / "components" */
+#define PRPL_CHAT_INFO_ROOM_ID "room_id"
+
 typedef struct _MatrixAccount {
     struct _PurpleAccount *pa;
     struct _PurpleConnection *pc;

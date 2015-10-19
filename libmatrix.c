@@ -42,6 +42,63 @@
 #include "matrix-login.h"
 #include "matrix-room.h"
 
+
+/* Get the list of information we need to add a chat to our buddy list */
+static GList *matrixprpl_chat_info(PurpleConnection *gc)
+{
+    struct proto_chat_entry *pce; /* defined in prpl.h */
+
+    pce = g_new0(struct proto_chat_entry, 1);
+    pce->label = _("Room id");
+	pce->identifier = PRPL_CHAT_INFO_ROOM_ID;
+    pce->required = TRUE;
+
+    return g_list_append(NULL, pce);
+}
+
+/* Get the defaults for the chat_info entries */
+static GHashTable *matrixprpl_chat_info_defaults(PurpleConnection *gc,
+                                          const char *room)
+{
+    GHashTable *defaults;
+
+    defaults = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
+    return defaults;
+}
+
+/* Get the name of a chat (as passed to serv_got_joined_chat) given the
+ * chat_info entries. For us this is the room id so this is easy
+ */
+static char *matrixprpl_get_chat_name(GHashTable *components)
+{
+    const char *room = g_hash_table_lookup(components, PRPL_CHAT_INFO_ROOM_ID);
+    return g_strdup(room);
+}
+
+/* Handle a double-click on a chat in the buddy list: it is expected that we
+ * join the chat.
+ */
+static void matrixprpl_join_chat(PurpleConnection *gc, GHashTable *components)
+{
+    const char *room = g_hash_table_lookup(components, PRPL_CHAT_INFO_ROOM_ID);
+    int chat_id = g_str_hash(room);
+    PurpleConversation *conv;
+
+    conv = purple_find_chat(gc, chat_id);
+
+    if(conv) {
+        /* already in chat */
+        return;
+    }
+    purple_debug_info("matrixprpl", "Request to join chat room %s\n", room);
+}
+
+
+/******************************************************************************
+ * The following comes from the 'nullprpl' dummy protocol. TODO: clear this out
+ * and keep only what we need.
+ */
+
 static PurplePlugin *_matrix_protocol = NULL;
 
 #define MATRIX_STATUS_ONLINE   "online"
@@ -500,55 +557,8 @@ static void matrixprpl_rem_deny(PurpleConnection *gc, const char *name) {
 }
 
 static void matrixprpl_set_permit_deny(PurpleConnection *gc) {
-    /* this is for synchronizing the local black/whitelist with the server.
-     * for matrixprpl, it's a noop.
-     */
 }
 
-static void joined_chat(PurpleConvChat *from, PurpleConvChat *to,
-                        int id, const char *room, gpointer userdata) {
-    /*  tell their chat window that we joined */
-    purple_debug_info("matrixprpl", "%s sees that %s joined chat room %s\n",
-                      to->nick, from->nick, room);
-    purple_conv_chat_add_user(to,
-                              from->nick,
-                              NULL,   /* user-provided join message, IRC style */
-                              PURPLE_CBFLAGS_NONE,
-                              TRUE);  /* show a join message */
-
-    if (from != to) {
-        /* add them to our chat window */
-        purple_debug_info("matrixprpl", "%s sees that %s is in chat room %s\n",
-                          from->nick, to->nick, room);
-        purple_conv_chat_add_user(from,
-                                  to->nick,
-                                  NULL,   /* user-provided join message, IRC style */
-                                  PURPLE_CBFLAGS_NONE,
-                                  FALSE);  /* show a join message */
-    }
-}
-
-static void matrixprpl_join_chat(PurpleConnection *gc, GHashTable *components) {
-    const char *username = gc->account->username;
-    const char *room = g_hash_table_lookup(components, "room_id");
-    int chat_id = g_str_hash(room);
-    purple_debug_info("matrixprpl", "%s is joining chat room %s\n", username, room);
-
-    if (!purple_find_chat(gc, chat_id)) {
-        serv_got_joined_chat(gc, chat_id, room);
-
-        /* tell everyone that we joined, and add them if they're already there */
-        foreach_gc_in_chat(joined_chat, gc, chat_id, NULL);
-    } else {
-        char *tmp = g_strdup_printf(_("%s is already in chat room %s."),
-                                    username,
-                                    room);
-        purple_debug_info("matrixprpl", "%s is already in chat room %s\n", username,
-                          room);
-        purple_notify_info(gc, _("Join chat"), _("Join chat"), tmp);
-        g_free(tmp);
-    }
-}
 
 static void matrixprpl_reject_chat(PurpleConnection *gc, GHashTable *components) {
     const char *invited_by = g_hash_table_lookup(components, "invited_by");
@@ -624,6 +634,7 @@ static void matrixprpl_chat_leave(PurpleConnection *gc, int id) {
     foreach_gc_in_chat(left_chat_room, gc, id, NULL);
 }
 
+#if 0
 static PurpleCmdRet send_whisper(PurpleConversation *conv, const gchar *cmd,
                                  gchar **args, gchar **error, void *userdata) {
     const char *to_username;
@@ -674,6 +685,7 @@ static PurpleCmdRet send_whisper(PurpleConversation *conv, const gchar *cmd,
         return PURPLE_CMD_RET_OK;
     }
 }
+#endif
 
 static void matrixprpl_chat_whisper(PurpleConnection *gc, int id, const char *who,
                                     const char *message) {
@@ -899,7 +911,8 @@ static gboolean matrixprpl_offline_message(const PurpleBuddy *buddy) {
 }
 
 
-/*
+/******************************************************************************
+ *
  * prpl stuff. see prpl.h for more information.
  */
 
@@ -1006,7 +1019,6 @@ static void matrixprpl_init(PurplePlugin *plugin)
 
     prpl_info.user_splits = g_list_append(NULL, split);
     prpl_info.protocol_options = g_list_append(NULL, option);
-#endif
 
     /* register whisper chat command, /msg */
     purple_cmd_register("msg",
@@ -1017,6 +1029,7 @@ static void matrixprpl_init(PurplePlugin *plugin)
                         send_whisper,
                         "msg &lt;username&gt; &lt;message&gt;: send a private message, aka a whisper",
                         NULL);                 /* userdata */
+#endif
 
     _matrix_protocol = plugin;
 }

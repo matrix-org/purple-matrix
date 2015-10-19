@@ -103,6 +103,7 @@ static void parse_timeline_event(JsonArray *timeline,
     		msg_body, timestamp / 1000);
 }
 
+
 static void parse_timeline_events(MatrixAccount *acct,
 		const gchar *room_id,
 		JsonArray *events, JsonObject* event_map)
@@ -149,7 +150,12 @@ static void matrixprpl_handle_initial_sync_room(
         }
         comp = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free); /* TODO:
                                                                               * free? */
-        g_hash_table_insert(comp, "room_id", g_strdup(room_id)); /* TODO: free? */
+        g_hash_table_insert(comp, PRPL_CHAT_INFO_ROOM_ID,
+                g_strdup(room_id)); /* TODO: free? */
+
+        /* we set the alias to the room id initially, then change it to
+         * something more user-friendly below.
+         */
         chat = purple_chat_new(ma->pa, room_id, comp);
         purple_blist_add_chat(chat, group, NULL);
     }

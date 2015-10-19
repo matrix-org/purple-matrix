@@ -45,18 +45,4 @@ void matrix_room_parse_state_events(MatrixRoomStateEventTable *state_table,
  */
 const char *matrix_room_get_name(MatrixRoomStateEventTable *state_table);
 
-
-/*****************************************************************************
- *
- * libpurple callbacks
- */
-
-GList *matrixprpl_chat_info(struct _PurpleConnection *pc);
-GHashTable *matrixprpl_chat_info_defaults(struct _PurpleConnection *pc,
-                                          const char *room);
-
-/* TODO: when are the results of this used? */
-char *matrixprpl_get_chat_name(GHashTable *components);
-
-
 #endif

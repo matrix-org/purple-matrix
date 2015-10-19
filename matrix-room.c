@@ -150,36 +150,3 @@ const char *matrix_room_get_name(MatrixRoomStateEventTable *state_table)
 	return "unknown";
 }
 
-
-GList *matrixprpl_chat_info(PurpleConnection *gc)
-{
-    struct proto_chat_entry *pce; /* defined in prpl.h */
-
-    pce = g_new0(struct proto_chat_entry, 1);
-    pce->label = _("Chat _room");
-    pce->identifier = "room_id";
-    pce->required = TRUE;
-
-    return g_list_append(NULL, pce);
-}
-
-GHashTable *matrixprpl_chat_info_defaults(PurpleConnection *gc,
-                                          const char *room)
-{
-    GHashTable *defaults;
-
-    purple_debug_info("matrixprpl", "returning chat default setting "
-                      "'room_id' = 'default'\n");
-
-    defaults = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
-    g_hash_table_insert(defaults, "room_id", g_strdup("default"));
-    return defaults;
-}
-
-char *matrixprpl_get_chat_name(GHashTable *components)
-{
-    const char *room = "room_name"; /* TODO fix */
-    purple_debug_info("matrixprpl", "reporting chat room name '%s'\n", room);
-    return g_strdup(room);
-}
-
