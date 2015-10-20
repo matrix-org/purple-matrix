@@ -39,10 +39,7 @@ typedef struct _RoomEventParserData {
 
 
 static void matrix_sync_complete(MatrixAccount *ma, gpointer user_data,
-        int http_response_code, const gchar *http_response_msg,
-        const gchar *body_start, JsonNode *body, const gchar *error_message);
-
-
+        const gchar *body_start, JsonNode *body);
 
 /**
  * handle an event for a room
@@ -176,35 +173,13 @@ static void matrix_handle_sync(MatrixAccount *ma, JsonNode *body)
             PURPLE_CONNECTION_ERROR_OTHER_ERROR, "No next_batch field");
         return;
     }
-    matrix_sync(ma, next_batch, matrix_sync_complete, NULL);
+    matrix_api_sync(ma, next_batch, matrix_sync_complete, NULL);
 }
 
 /* callback which is called when a /sync request completes */
-static void matrix_sync_complete(MatrixAccount *ma,
-                                            gpointer user_data,
-                                            int http_response_code,
-                                            const gchar *http_response_msg,
-                                            const gchar *body_start,
-                                            JsonNode *body,
-                                            const gchar *error_message)
+static void matrix_sync_complete(MatrixAccount *ma, gpointer user_data,
+    const gchar *body_start, JsonNode *body)
 {
-    if (error_message) {
-        purple_debug_info("matrixprpl", "sync gave error %s\n",
-                          error_message);
-        purple_connection_error_reason(ma->pc,
-            PURPLE_CONNECTION_ERROR_NETWORK_ERROR, error_message);
-        return;
-    }
-
-    if (http_response_code >= 400) {
-        purple_debug_info("matrixprpl", "sync gave response %s: %s\n",
-                          http_response_msg, body_start);
-        purple_connection_error_reason(ma->pc,
-                                       PURPLE_CONNECTION_ERROR_OTHER_ERROR,
-                                       http_response_msg);
-        return;
-    }
-
     purple_debug_info("matrixprpl", "got sync result %s\n", body_start);
 
     purple_connection_update_progress(ma->pc, _("Connected"), 2, 3);
@@ -217,5 +192,5 @@ static void matrix_sync_complete(MatrixAccount *ma,
 void matrix_sync_start_loop(MatrixAccount *ma)
 {
     purple_connection_update_progress(ma->pc, _("Initial Sync"), 1, 3);
-    matrix_sync(ma, NULL, matrix_sync_complete, NULL);
+    matrix_api_sync(ma, NULL, matrix_sync_complete, NULL);
 }

@@ -87,6 +87,55 @@ static const gchar *matrix_api_parse_body(const gchar *ret_data,
     return body_pointer;
 }
 
+
+/**
+ * Default callback if there was an error calling the API. We just put the
+ * connection into the "error" state.
+ *
+ * @param account             The MatrixAccount passed into the api method
+ * @param user_data           The user data that your code passed into the api
+ *                                method.
+ * @param error_message    a descriptive error message
+ *
+ */
+void matrix_api_error(MatrixAccount *ma, gpointer user_data,
+        const gchar *error_message)
+{
+    purple_debug_info("matrixprpl", "Error calling API: %s\n",
+                error_message);
+    purple_connection_error_reason(ma->pc,
+                PURPLE_CONNECTION_ERROR_NETWORK_ERROR, error_message);
+}
+
+/**
+ * Default callback if the API returns a non-200 response. We just put the
+ * connection into the "error" state.
+ *
+ * @param account             The MatrixAccount passed into the api method
+ * @param user_data           The user data that your code passed into the api
+ *                                method.
+ * @param http_response       HTTP response code.
+ * @param http_response_msg   message from the HTTP response line.
+ * @param body_start          NULL if there was no body in the response;
+ *                                otherwise a pointer to the start of the body
+ *                                in the response
+ * @param json_root           NULL if there was no body, or it could not be
+ *                                parsed as JSON; otherwise the root of the JSON
+ *                                tree in the response
+ */
+void matrix_api_bad_response(MatrixAccount *ma, gpointer user_data,
+        int http_response_code, const gchar *http_response_msg,
+        const gchar *body_start, struct _JsonNode *json_root)
+{
+    purple_debug_info("matrixprpl", "API gave response %i (%s): %s\n",
+            http_response_code, http_response_msg, body_start);
+    purple_connection_error_reason(ma->pc,
+            PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+            http_response_msg);
+}
+
+
+
 /**
  * The callback we give to purple_util_fetch_url_request - does some
  * initial processing of the response
@@ -100,8 +149,8 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
     MatrixApiRequestData *data = (MatrixApiRequestData *)user_data;
     int response_code = -1;
     gchar *response_message = NULL;
-    JsonParser *parser;
-    JsonNode *root;
+    JsonParser *parser = NULL;
+    JsonNode *root = NULL;
     const gchar *body_start;
     
     if (!error_message) {
@@ -135,9 +184,15 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
             root = json_parser_get_root(parser);
     }
 
-    (data->callback)(data->account, data->user_data,
-                     response_code, response_message,
-                     body_start, root, error_message);
+    if (error_message) {
+        matrix_api_error(data->account, data->user_data, error_message);
+    } else if(response_code >= 300) {
+        matrix_api_bad_response(data->account, data->user_data,
+                response_code, response_message, body_start, root);
+    } else {
+        (data->callback)(data->account, data->user_data,
+                         body_start, root);
+    }
 
     /* free the JSON parser, and all of the node structures */
     if(parser)
@@ -173,7 +228,7 @@ static PurpleUtilFetchUrlData *matrix_api_start(const gchar *url,
 }
 
 
-PurpleUtilFetchUrlData *matrix_sync(MatrixAccount *account,
+PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
         const gchar *since,
         MatrixApiCallback callback,
         gpointer user_data)
