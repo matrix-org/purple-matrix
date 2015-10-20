@@ -20,15 +20,35 @@
 
 #include <string.h>
 
+/* json-glib */
+#include <json-glib/json-glib.h>
+
 /* libpurple */
-#include "debug.h"
+#include <debug.h>
 
 /* libmatrix */
+#include "matrix-api.h"
+#include "matrix-json.h"
 #include "matrix-sync.h"
 
-/* TODO: make this configurable */
-#define MATRIX_HOMESERVER "www.sw1v.org"
+static void _login_completed(MatrixAccount *account,
+        gpointer user_data,
+        JsonNode *json_root)
+{
+    JsonObject *root_obj;
+    const gchar *access_token;
 
+    root_obj = matrix_json_node_get_object(json_root);
+    access_token = matrix_json_object_get_string_member(root_obj, "access_token");
+    if(access_token == NULL) {
+        purple_connection_error_reason(account->pc,
+                PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                "No access_token in /login response");
+        return;
+    }
+    account->access_token = g_strdup(access_token); /* TODO: free */
+    matrix_sync_start_loop(account);
+}
 
 
 void matrixprpl_login(PurpleAccount *acct)
@@ -45,14 +65,9 @@ void matrixprpl_login(PurpleAccount *acct)
 
     purple_debug_info("matrixprpl", "logging in %s\n", acct->username);
 
-    /* TODO: make this configurable */
-    ma->homeserver = g_strdup(MATRIX_HOMESERVER);
+    ma->homeserver = g_strdup(purple_account_get_string(
+            acct, PRPL_ACCOUNT_OPT_HOME_SERVER, DEFAULT_HOME_SERVER));
     
-    /* TODO: use the login API to get our access token.
-     *
-     * For now, assume that the username *is* the access token.
-     */
-    ma->access_token = g_strdup(acct->username);
-
-    matrix_sync_start_loop(ma);
+    matrix_api_password_login(ma, acct->username,
+            purple_account_get_password(acct), _login_completed, ma);
 }

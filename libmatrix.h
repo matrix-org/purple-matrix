@@ -32,6 +32,12 @@
 /* our protocol ID string */
 #define PRPL_ID "prpl-matrix"
 
+/* identifiers for account options */
+#define PRPL_ACCOUNT_OPT_HOME_SERVER "home_server"
+
+/* defaults for account options */
+#define DEFAULT_HOME_SERVER "https://matrix.org"
+
 /* identifiers for the chat info / "components" */
 #define PRPL_CHAT_INFO_ROOM_ID "room_id"
 

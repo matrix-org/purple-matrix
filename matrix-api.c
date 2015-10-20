@@ -27,6 +27,7 @@
 
 /* libpurple */
 #include <debug.h>
+#include <ntlm.h>
 
 #include "libmatrix.h"
 #include "matrix-json.h"
@@ -89,7 +90,8 @@ void matrix_api_bad_response(MatrixAccount *ma, gpointer user_data,
         error_message = g_strdup_printf("%s: %s: %s",
                 _("Error from home server"), errcode, error);
     } else {
-        error_message = g_strdup(_("Error from home server"));
+        error_message = g_strdup_printf("%s: %i",
+                _("Error from home server"), http_response_code);
     }
 
 
@@ -157,8 +159,9 @@ static void _handle_header_completed(MatrixApiResponseParserData *response_data)
         return;
     }
 
-    purple_debug_info("matrixprpl", "Handling API response header %s: %s\n",
-            name, value);
+    if(purple_debug_is_verbose())
+        purple_debug_info("matrixprpl", "Handling API response header %s: %s\n",
+                name, value);
 
     if(strcmp(name, "Content-Type") == 0) {
         g_free(response_data->content_type);
@@ -218,8 +221,9 @@ static int _handle_body(http_parser *http_parser, const char *at,
     MatrixApiResponseParserData *response_data = http_parser->data;
     GError *err;
 
-    purple_debug_info("matrixprpl", "Handling API response body %.*s\n",
-            (int)length, at);
+    if(purple_debug_is_verbose())
+        purple_debug_info("matrixprpl", "Handling API response body %.*s\n",
+                (int)length, at);
 
     if(strcmp(response_data->content_type, "application/json") == 0) {
         if(!json_parser_load_from_data(response_data -> json_parser, at, length,
@@ -312,14 +316,13 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
 /**
  * Start an HTTP call to the API
  *
+ * @param request request headers and body to send, or NULL for default GET
  * @param max_len maximum number of bytes to return from the request. -1 for
  *                default (512K).
  */
 static PurpleUtilFetchUrlData *matrix_api_start(const gchar *url,
-                                                MatrixAccount *account,
-                                                MatrixApiCallback callback,
-                                                gpointer user_data,
-                                                gssize max_len)
+        const gchar *request, MatrixAccount *account,
+        MatrixApiCallback callback, gpointer user_data, gssize max_len)
 {
     MatrixApiRequestData *data;
 
@@ -328,10 +331,126 @@ static PurpleUtilFetchUrlData *matrix_api_start(const gchar *url,
     data->callback = callback;
     data->user_data = user_data;
 
-    /* TODO: implement the per-account proxy settings */
-    return purple_util_fetch_url_request_len(url, TRUE, NULL, TRUE, NULL,
-                                             TRUE, max_len,
-                                             matrix_api_complete, data);
+    return purple_util_fetch_url_request_len_with_account(account -> pa,
+            url, TRUE, NULL, TRUE, request, TRUE, max_len, matrix_api_complete,
+            data);
+}
+
+static void _add_proxy_auth_headers(GString *request_str, PurpleProxyInfo *gpi)
+{
+    PurpleProxyType type = purple_proxy_info_get_type(gpi);
+    char *t1, *t2, *ntlm_type1;
+    char hostname[256];
+    int ret;
+
+    if (purple_proxy_info_get_username(gpi) == NULL)
+        return;
+
+    if(type != PURPLE_PROXY_USE_ENVVAR && type != PURPLE_PROXY_HTTP)
+        return;
+
+    ret = gethostname(hostname, sizeof(hostname));
+    hostname[sizeof(hostname) - 1] = '\0';
+    if (ret < 0 || hostname[0] == '\0') {
+          purple_debug_warning("util", "proxy - gethostname() failed -- is your hostname set?");
+          strcpy(hostname, "localhost");
+    }
+
+    t1 = g_strdup_printf("%s:%s",
+                purple_proxy_info_get_username(gpi),
+                purple_proxy_info_get_password(gpi) ?
+                        purple_proxy_info_get_password(gpi) : "");
+    t2 = purple_base64_encode((const guchar *)t1, strlen(t1));
+    g_free(t1);
+
+    ntlm_type1 = purple_ntlm_gen_type1(hostname, "");
+    g_string_append_printf(request_str,
+            "Proxy-Authorization: Basic %s\r\n"
+            "Proxy-Authorization: NTLM %s\r\n"
+            "Proxy-Connection: Keep-Alive\r\n",
+            t2, ntlm_type1);
+    g_free(ntlm_type1);
+    g_free(t2);
+}
+
+
+static GString *_build_request(PurpleAccount *acct, const gchar *url,
+        const gchar *method, const gchar *body)
+{
+    /* this is lifted from libpurple/util.c:url_fetch_send_cb. I wish libpurple
+     * exposed it so that we didn't need to reinvent this wheel.
+     */
+    PurpleProxyInfo *gpi = purple_proxy_get_setup(acct);
+    GString *request_str = g_string_new(NULL);
+    gchar *url_host, *url_path, *url_user, *url_password;
+    int url_port;
+
+    purple_url_parse(url, &url_host, &url_port, &url_path, &url_user,
+            &url_password);
+
+    g_string_append_printf(request_str, "%s %s HTTP/1.1\r\n", method, url);
+    g_string_append(request_str, "Connection: close\r\n");
+    g_string_append_printf(request_str, "Host: %s\r\n", url_host);
+    g_string_append_printf(request_str, "Content-Length: %zi\r\n",
+            strlen(body));
+
+    _add_proxy_auth_headers(request_str, gpi);
+    g_string_append(request_str, "\r\n");
+    g_string_append(request_str, body);
+
+    return request_str;
+}
+
+gchar *_build_login_body(const gchar *username, const gchar *password)
+{
+    JsonObject *body;
+    JsonNode *node;
+    JsonGenerator *generator;
+    gchar *result;
+
+    body = json_object_new();
+    json_object_set_string_member(body, "type", "m.login.password");
+    json_object_set_string_member(body, "user", username);
+    json_object_set_string_member(body, "password", password);
+    node = json_node_alloc();
+    json_node_init_object(node, body);
+    json_object_unref(body);
+
+    generator = json_generator_new();
+    json_generator_set_root(generator, node);
+    result = json_generator_to_data(generator, NULL);
+    g_object_unref(G_OBJECT(generator));
+    json_node_free(node);
+    return result;
+}
+
+PurpleUtilFetchUrlData *matrix_api_password_login(MatrixAccount *account,
+        const gchar *username,
+        const gchar *password,
+        MatrixApiCallback callback,
+        gpointer user_data)
+{
+    gchar *url, *json;
+    PurpleUtilFetchUrlData *fetch_data;
+    GString *request;
+
+    url = g_strconcat(account->homeserver, "/_matrix/client/api/v1/login",
+            NULL);
+
+    json = _build_login_body(username, password);
+    request = _build_request(account->pa, url, "POST", json);
+    g_free(json);
+
+    if(purple_debug_is_unsafe())
+        purple_debug_info("matrixprpl", "request %s\n", request->str);
+
+    fetch_data = matrix_api_start(url, request->str, account, callback,
+            user_data, 0);
+    g_string_free(request, TRUE);
+    g_free(url);
+
+    return fetch_data;
+
 }
 
 
@@ -345,18 +464,19 @@ PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
     
     url = g_string_new("");
     g_string_append_printf(url,
-            "https://%s/_matrix/client/v2_alpha/sync?access_token=%s",
+            "%s/_matrix/client/v2_alpha/sync?access_token=%s",
             account->homeserver, account->access_token);
 
     if(since != NULL)
         g_string_append_printf(url, "&timeout=30000&since=%s", since);
 
-    purple_debug_info("matrixprpl", "request %s\n", url->str);
+    if(purple_debug_is_verbose())
+        purple_debug_info("matrixprpl", "request %s\n", url->str);
 
     /* XXX: stream the response, so that we don't need to allocate so much
      * memory? But it's JSON
      */
-    fetch_data = matrix_api_start(url->str, account, callback, user_data,
+    fetch_data = matrix_api_start(url->str, NULL, account, callback, user_data,
                                   10*1024*1024);
     g_string_free(url, TRUE);
     

@@ -910,7 +910,7 @@ static gboolean matrixprpl_offline_message(const PurpleBuddy *buddy) {
 
 static PurplePluginProtocolInfo prpl_info =
 {
-    OPT_PROTO_NO_PASSWORD | OPT_PROTO_CHAT_TOPIC,  /* options */
+    OPT_PROTO_CHAT_TOPIC,                /* options */
     NULL,               /* user_splits, initialized in matrixprpl_init() */
     NULL,               /* protocol_options, initialized in matrixprpl_init() */
     {   /* icon_spec, a PurpleBuddyIconSpec */
@@ -996,22 +996,18 @@ static PurplePluginProtocolInfo prpl_info =
 
 static void matrixprpl_init(PurplePlugin *plugin)
 {
+    GList *protocol_options = NULL;
+
     purple_debug_info("matrixprpl", "starting up\n");
 
+    protocol_options = g_list_append(protocol_options,
+            purple_account_option_string_new(
+                    _("Home server URL"), PRPL_ACCOUNT_OPT_HOME_SERVER,
+                    DEFAULT_HOME_SERVER));
+    prpl_info.protocol_options = protocol_options;
+
+
 #if 0
-    /* see accountopt.h for information about user splits and protocol options */
-    PurpleAccountUserSplit *split = purple_account_user_split_new(
-        _("Example user split"),  /* text shown to user */
-        "default",                /* default value */
-        '@');                     /* field separator */
-    PurpleAccountOption *option = purple_account_option_string_new(
-        _("Example option"),      /* text shown to user */
-        "example",                /* pref name */
-        "default");               /* default value */
-
-    prpl_info.user_splits = g_list_append(NULL, split);
-    prpl_info.protocol_options = g_list_append(NULL, option);
-
     /* register whisper chat command, /msg */
     purple_cmd_register("msg",
                         "ws",                  /* args: recipient and message */
