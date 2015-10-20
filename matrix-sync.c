@@ -39,7 +39,7 @@ typedef struct _RoomEventParserData {
 
 
 static void matrix_sync_complete(MatrixAccount *ma, gpointer user_data,
-        const gchar *body_start, JsonNode *body);
+        JsonNode *body);
 
 /**
  * handle an event for a room
@@ -178,10 +178,8 @@ static void matrix_handle_sync(MatrixAccount *ma, JsonNode *body)
 
 /* callback which is called when a /sync request completes */
 static void matrix_sync_complete(MatrixAccount *ma, gpointer user_data,
-    const gchar *body_start, JsonNode *body)
+    JsonNode *body)
 {
-    purple_debug_info("matrixprpl", "got sync result %s\n", body_start);
-
     purple_connection_update_progress(ma->pc, _("Connected"), 2, 3);
     purple_connection_set_state(ma->pa->gc, PURPLE_CONNECTED);
 

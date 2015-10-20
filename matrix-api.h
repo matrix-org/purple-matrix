@@ -33,16 +33,12 @@ struct _JsonNode;
  * @param account       The MatrixAccount passed into the api method
  * @param user_data     The user data that your code passed into the api
  *                      method.
- * @param body_start    NULL if there was no body in the response;
- *                      otherwise a pointer to the start of the body in the
- *                      response
  * @param json_root     NULL if there was no body, or it could not be
  *                          parsed as JSON; otherwise the root of the JSON
  *                          tree in the response
  */
 typedef void (*MatrixApiCallback)(MatrixAccount *account,
                                   gpointer user_data,
-                                  const gchar *body_start,
                                   struct _JsonNode *json_root);
 
 

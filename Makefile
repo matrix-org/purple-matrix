@@ -6,6 +6,7 @@ CFLAGS+=-DPURPLE_PLUGINS $(shell pkg-config --cflags $(LIBS))
 CFLAGS+=-fPIC -DPIC
 CFLAGS+=-Wall -g -O0 -Werror
 LDLIBS+=$(shell pkg-config --libs $(LIBS))
+LDLIBS+=-lhttp_parser
 
 # generate .d files when compiling
 CPPFLAGS+=-MMD
