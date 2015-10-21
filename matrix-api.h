@@ -25,6 +25,7 @@
 #include "libmatrix.h"
 
 struct _JsonNode;
+struct _JsonObject;
 
 /**
  * This is the signature used for functions that act as the callback
@@ -40,6 +41,48 @@ struct _JsonNode;
 typedef void (*MatrixApiCallback)(MatrixAccount *account,
                                   gpointer user_data,
                                   struct _JsonNode *json_root);
+
+/**
+ * Signature for functions which are called when there is an error calling the
+ * API (such as a connection failure)
+ *
+ * @param account          The MatrixAccount passed into the api method
+ * @param user_data        The user data that your code passed into the api
+ *                             method.
+ * @param error_message    a descriptive error message
+ *
+ */
+typedef void (*MatrixApiErrorCallback)(MatrixAccount *ma, gpointer user_data,
+        const gchar *error_message);
+
+/**
+ * Default error callback. We just put the connection into the "error" state.
+ */
+void matrix_api_error(MatrixAccount *ma, gpointer user_data,
+        const gchar *error_message);
+
+/**
+ * Signature for functions which are called when the API returns a non-200
+ * response.
+ *
+ * @param account             The MatrixAccount passed into the api method
+ * @param user_data           The user data that your code passed into the api
+ *                                method.
+ * @param http_response       HTTP response code.
+ * @param json_root           NULL if there was no body, or it could not be
+ *                                parsed as JSON; otherwise the root of the JSON
+ *                                tree in the response
+ */
+typedef void (*MatrixApiBadResponseCallback)(MatrixAccount *ma,
+        gpointer user_data, int http_response_code,
+        struct _JsonNode *json_root);
+
+/**
+ * Default bad-response callback. We just put the connection into the "error"
+ * state.
+ */
+void matrix_api_bad_response(MatrixAccount *ma, gpointer user_data,
+        int http_response_code, struct _JsonNode *json_root);
 
 
 /**
@@ -72,4 +115,29 @@ PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
         MatrixApiCallback callback,
         gpointer user_data);
 
+
+/**
+ * Send an event to a room
+ *
+ * @param account          The MatrixAccount for which to make the request
+ * @param room_id          The room to send the event to
+ * @param event_type       The type of event (eg "m.room.message")
+ * @param txn_id           Unique transaction id
+ * @param content          The content of the event
+ * @param callback         Function to be called when the request completes
+ * @param error_callback   Function to be called if there is an error making
+ *                             the request. If NULL, matrix_api_error will be
+ *                             used.
+ * @param bad_response_callback Function to be called if the API gives a non-200
+ *                            response. If NULL, matrix_api_bad_response will be
+ *                            used.
+ * @param user_data        Opaque data to be passed to the callbacks
+ */
+PurpleUtilFetchUrlData *matrix_api_send(MatrixAccount *account,
+        const gchar *room_id, const gchar *event_type, const gchar *txn_id,
+        struct _JsonObject *content,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
 #endif

@@ -50,7 +50,7 @@ struct _PurpleConversation *matrix_room_get_or_create_conversation(
 void matrix_room_leave_chat(struct _PurpleConversation *conv);
 
 /**
- * handle a single timeline event for a room (such as a message)
+ * handle a single received timeline event for a room (such as a message)
  *
  * @param conv        info on the room
  * @param event_id    id of the event
@@ -63,7 +63,11 @@ void matrix_room_handle_timeline_event(struct _PurpleConversation *conv,
         const gchar *event_id, const gchar *event_type,
         const gchar *sender, gint64 timestamp, JsonObject *json_content_obj);
 
-
+/**
+ * Send a message in a room
+ */
+void matrix_room_send_message(struct _PurpleConversation *conv,
+        const gchar *message);
 
 /*************************************************************************
  *

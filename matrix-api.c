@@ -35,6 +35,8 @@
 typedef struct {
     MatrixAccount *account;
     MatrixApiCallback callback;
+    MatrixApiErrorCallback error_callback;
+    MatrixApiBadResponseCallback bad_response_callback;
     gpointer user_data;
 } MatrixApiRequestData;
 
@@ -296,9 +298,9 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
     }
 
     if (error_message) {
-        matrix_api_error(data->account, data->user_data, error_message);
+        (data->error_callback)(data->account, data->user_data, error_message);
     } else if(response_code >= 300) {
-        matrix_api_bad_response(data->account, data->user_data,
+        (data->bad_response_callback)(data->account, data->user_data,
                 response_code, root);
     } else {
         (data->callback)(data->account, data->user_data, root);
@@ -322,13 +324,19 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
  */
 static PurpleUtilFetchUrlData *matrix_api_start(const gchar *url,
         const gchar *request, MatrixAccount *account,
-        MatrixApiCallback callback, gpointer user_data, gssize max_len)
+        MatrixApiCallback callback, MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data, gssize max_len)
 {
     MatrixApiRequestData *data;
 
     data = g_new0(MatrixApiRequestData, 1);
     data->account = account;
     data->callback = callback;
+    data->error_callback = (error_callback == NULL ?
+            matrix_api_error : error_callback);
+    data->bad_response_callback = (bad_response_callback == NULL ?
+            matrix_api_bad_response : bad_response_callback);
     data->user_data = user_data;
 
     return purple_util_fetch_url_request_len_with_account(account -> pa,
@@ -445,12 +453,11 @@ PurpleUtilFetchUrlData *matrix_api_password_login(MatrixAccount *account,
         purple_debug_info("matrixprpl", "request %s\n", request->str);
 
     fetch_data = matrix_api_start(url, request->str, account, callback,
-            user_data, 0);
+            NULL, NULL, user_data, 0);
     g_string_free(request, TRUE);
     g_free(url);
 
     return fetch_data;
-
 }
 
 
@@ -465,7 +472,7 @@ PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
     url = g_string_new("");
     g_string_append_printf(url,
             "%s/_matrix/client/v2_alpha/sync?access_token=%s",
-            account->homeserver, account->access_token);
+            account->homeserver, purple_url_encode(account->access_token));
 
     if(since != NULL)
         g_string_append_printf(url, "&timeout=30000&since=%s", since);
@@ -476,9 +483,61 @@ PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
     /* XXX: stream the response, so that we don't need to allocate so much
      * memory? But it's JSON
      */
-    fetch_data = matrix_api_start(url->str, NULL, account, callback, user_data,
-                                  10*1024*1024);
+    fetch_data = matrix_api_start(url->str, NULL, account, callback,
+            NULL, NULL, user_data, 10*1024*1024);
     g_string_free(url, TRUE);
     
+    return fetch_data;
+}
+
+PurpleUtilFetchUrlData *matrix_api_send(MatrixAccount *account,
+        const gchar *room_id, const gchar *event_type, const gchar *txn_id,
+        JsonObject *content, MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    PurpleUtilFetchUrlData *fetch_data;
+    GString *request;
+    JsonNode *body_node;
+    JsonGenerator *generator;
+    gchar *json;
+
+    /* purple_url_encode uses a single static buffer, so we have to build up
+     * the url gradually
+     */
+    url = g_string_new("");
+    g_string_append_printf(url, "%s/_matrix/client/api/v1/rooms/",
+            account->homeserver);
+    g_string_append(url, purple_url_encode(room_id));
+    g_string_append(url, "/send/");
+    g_string_append(url, purple_url_encode(event_type));
+    g_string_append(url, "/");
+    g_string_append(url, purple_url_encode(txn_id));
+    g_string_append(url, "?access_token=");
+    g_string_append(url, purple_url_encode(account->access_token));
+
+    body_node = json_node_alloc();
+    json_node_init_object(body_node, content);
+
+    generator = json_generator_new();
+    json_generator_set_root(generator, body_node);
+    json = json_generator_to_data(generator, NULL);
+    g_object_unref(G_OBJECT(generator));
+    json_node_free(body_node);
+
+    request = _build_request(account->pa, url->str, "PUT", json);
+    g_free(json);
+
+    if(purple_debug_is_unsafe())
+        purple_debug_info("matrixprpl", "request %s\n", request->str);
+
+    fetch_data = matrix_api_start(url->str, request->str, account, callback,
+            error_callback, bad_response_callback,
+            user_data, 0);
+    g_string_free(request, TRUE);
+    g_string_free(url, TRUE);
+
     return fetch_data;
 }

@@ -107,6 +107,25 @@ static void matrixprpl_chat_leave(PurpleConnection *gc, int id) {
 }
 
 
+/**
+ * handle sending messages in a chat
+ */
+static int matrixprpl_chat_send(PurpleConnection *gc, int id,
+        const char *message, PurpleMessageFlags flags) {
+    PurpleConversation *conv = purple_find_chat(gc, id);
+    if(!conv) {
+        purple_debug_info("matrixprpl",
+                "tried to send message to chat room #%d but couldn't find "
+                "chat room", id);
+        return -1;
+    }
+
+    matrix_room_send_message(conv, message);
+    return 0;
+}
+
+
+
 /******************************************************************************
  * The following comes from the 'nullprpl' dummy protocol. TODO: clear this out
  * and keep only what we need.
@@ -692,39 +711,6 @@ static void matrixprpl_chat_whisper(PurpleConnection *gc, int id, const char *wh
                      message, time(NULL));
 }
 
-static void receive_chat_message(PurpleConvChat *from, PurpleConvChat *to,
-                                 int id, const char *room, gpointer userdata) {
-    const char *message = (const char *)userdata;
-    PurpleConnection *to_gc = get_matrixprpl_gc(to->nick);
-
-    purple_debug_info("matrixprpl",
-                      "%s receives message from %s in chat room %s: %s\n",
-                      to->nick, from->nick, room, message);
-    serv_got_chat_in(to_gc, id, from->nick, PURPLE_MESSAGE_RECV, message,
-                     time(NULL));
-}
-
-static int matrixprpl_chat_send(PurpleConnection *gc, int id, const char *message,
-                                PurpleMessageFlags flags) {
-    const char *username = gc->account->username;
-    PurpleConversation *conv = purple_find_chat(gc, id);
-
-    if (conv) {
-        purple_debug_info("matrixprpl",
-                          "%s is sending message to chat room %s: %s\n", username,
-                          conv->name, message);
-
-        /* send message to everyone in the chat room */
-        foreach_gc_in_chat(receive_chat_message, gc, id, (gpointer)message);
-        return 0;
-    } else {
-        purple_debug_info("matrixprpl",
-                          "tried to send message from %s to chat room #%d: %s\n"
-                          "but couldn't find chat room",
-                          username, id, message);
-        return -1;
-    }
-}
 
 static void matrixprpl_register_user(PurpleAccount *acct) {
     purple_debug_info("matrixprpl", "registering account for %s\n",
