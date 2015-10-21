@@ -1,5 +1,13 @@
 /**
- * Handle the 'sync' loop
+ * matrix-sync.h
+ *
+ * Receipt of events from the matrix homeserver works by continually polling the
+ * /sync API endpoint. This module manages that process. It provides a single
+ * method which initiates a /sync request for an authenticated MatrixAccount.
+ *
+ * On completion of the request, any events it returned are dispatched to the
+ * relevant rooms, and another /sync request is started.
+ *
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -13,7 +21,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111-1301  USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA
  */
 
 #ifndef MATRIX_SYNC_H_
@@ -21,7 +29,7 @@
 
 #include "libmatrix.h"
 
-/*
+/**
  *  Start the sync loop for a matrix account. This will repeatedly call
  * '/sync' to get room information and new events.
  */

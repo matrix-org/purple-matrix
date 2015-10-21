@@ -1,7 +1,10 @@
 /*
- * matrix-json.h
+ * matrix-json.h: Convenience wrappers for libjson-glib
  *
- * Convenience wrappers for libglib-json
+ * This file contains wrappers for the libjson-glib library, which sanity-check
+ * their inputs and return NULL (as opposed to segfaulting and/or writing
+ * assertion warnings) if objects do not exist or are of the wrong type.
+ *
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,7 +18,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111-1301  USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA
  */
 
 #ifndef MATRIX_JSON_H_
@@ -24,9 +27,7 @@
 #include <json-glib/json-glib.h>
 
 /*
- * The following are wrappers which sanity-check their inputs and return NULL
- * (as opposed to segfaulting and/or writing assertion warnings) if objects
- * do not exist or are of the wrong type.
+
  */
 
 /* node - returns NULL if node == NULL or *node is of the wrong type */

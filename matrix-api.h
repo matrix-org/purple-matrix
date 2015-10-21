@@ -1,5 +1,16 @@
 /**
- * Interface to the matrix client/server API
+ * matrix-api.h: Interface to the matrix client/server API.
+ *
+ * The intention is that this module provides an interface to the matrix API
+ * without anything purple-specific.
+ *
+ * Each API method takes a 'MatrixAccount *'; this is used to determine the
+ * URL of the homeserver, and the access_token which is used for authorisation.
+ *
+ * The methods are asyncronous, and take a callback to be called when the method
+ * completes.
+ *
+ *
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -13,7 +24,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111-1301  USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA
  */
 
 #ifndef MATRIX_API_H

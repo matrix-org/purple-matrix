@@ -1,5 +1,8 @@
 /**
- * Matrix plugin for libpurple/Pidgin
+ * libmatrix.h
+ *
+ * Defines some common macros and structures which are used in a number of
+ * places throughout the code.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -13,7 +16,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111-1301  USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA
   */
 
 #ifndef LIBMATRIX_H
