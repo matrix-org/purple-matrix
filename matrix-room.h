@@ -54,14 +54,10 @@ void matrix_room_leave_chat(struct _PurpleConversation *conv);
  *
  * @param conv        info on the room
  * @param event_id    id of the event
- * @param event_type  type of the event (eg m.room.message)
- * @param sender      sender of the event
- * @param timestamp   timestamp at the origin server
- * @param json_content_obj  the 'content' of the event.
+ * @param json_event_obj  the event object.
  */
 void matrix_room_handle_timeline_event(struct _PurpleConversation *conv,
-        const gchar *event_id, const gchar *event_type,
-        const gchar *sender, gint64 timestamp, JsonObject *json_content_obj);
+        const gchar *event_id, JsonObject *json_event_obj);
 
 /**
  * Send a message in a room
@@ -78,12 +74,11 @@ void matrix_room_send_message(struct _PurpleConversation *conv,
  * Update the state table on a room
  *
  * @param conv        info on the room
- * @param event_type  type of the event (eg m.room.name)
- * @param state_key
+ * @param event_id    id of the event
+ * @param json_event_obj  the event object.
  */
 void matrix_room_update_state_table(struct _PurpleConversation *conv,
-        const gchar *event_type, const gchar *state_key,
-        JsonObject *json_content_obj);
+        const gchar *event_id, JsonObject *json_event_obj);
 
 
 #endif

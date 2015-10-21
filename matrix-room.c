@@ -36,7 +36,7 @@
 /* a MatrixRoomStateEventTable * - see below */
 #define PURPLE_CONV_DATA_STATE "state"
 
-/* a GList of MatrixRoomEvents */
+/* a GList of MatrixRoomEvent * */
 #define PURPLE_CONV_DATA_EVENT_QUEUE "queue"
 
 /* PurpleUtilFetchUrlData * */
@@ -117,12 +117,25 @@ MatrixRoomStateEventTable *matrix_room_get_state_table(PurpleConversation *conv)
  * Update the state table on a room
  */
 void matrix_room_update_state_table(PurpleConversation *conv,
-        const gchar *event_type, const gchar *state_key,
-        JsonObject *json_content_obj)
+        const gchar *event_id, JsonObject *json_event_obj)
 {
+    const gchar *event_type, *state_key;
+    JsonObject *json_content_obj;
     MatrixRoomEvent *event;
     MatrixRoomStateEventTable *state_table;
     GHashTable *state_table_entry;
+
+    event_type = matrix_json_object_get_string_member(
+            json_event_obj, "type");
+    state_key = matrix_json_object_get_string_member(
+            json_event_obj, "state_key");
+    json_content_obj = matrix_json_object_get_object_member(
+            json_event_obj, "content");
+
+    if(event_type == NULL || state_key == NULL || json_content_obj == NULL) {
+        purple_debug_warning("matrixprpl", "event missing fields");
+        return;
+    }
 
     event = _alloc_room_event(event_type, json_content_obj);
 
@@ -326,13 +339,29 @@ static void _enqueue_event(PurpleConversation *conv, const gchar *event_type,
 
 
 void matrix_room_handle_timeline_event(PurpleConversation *conv,
-        const gchar *event_id, const gchar *event_type,
-        const gchar *sender, gint64 timestamp, JsonObject *json_content_obj)
+        const gchar *event_id, JsonObject *json_event_obj)
 {
+    const gchar *event_type, *sender, *transaction_id;
+    gint64 timestamp;
+    JsonObject *json_content_obj;
+    JsonObject *json_unsigned_obj;
     const gchar *room_id, *msg_body;
     PurpleMessageFlags flags;
 
     room_id = conv->name;
+
+    event_type = matrix_json_object_get_string_member(
+            json_event_obj, "type");
+    sender = matrix_json_object_get_string_member(json_event_obj, "sender");
+    timestamp = matrix_json_object_get_int_member(json_event_obj,
+                "origin_server_ts");
+    json_content_obj = matrix_json_object_get_object_member(
+            json_event_obj, "content");
+
+    if(event_type == NULL) {
+        purple_debug_warning("matrixprpl", "event missing type field");
+        return;
+    }
 
     if(strcmp(event_type, "m.room.message") != 0) {
         purple_debug_info("matrixprpl", "ignoring unknown room event %s\n",
@@ -344,6 +373,21 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     if(msg_body == NULL) {
         purple_debug_warning("matrixprpl", "no body in message event %s\n",
                         event_id);
+        return;
+    }
+
+    json_unsigned_obj = matrix_json_object_get_object_member(json_event_obj,
+            "unsigned");
+    transaction_id = matrix_json_object_get_string_member(json_unsigned_obj,
+            "transaction_id");
+
+    /* if it has a transaction id, it's an echo of a message we sent.
+     * We shouldn't really just ignore it, but I'm not sure how to update a sent
+     * message.
+     */
+    if(transaction_id != NULL) {
+        purple_debug_info("matrixprpl", "got local echo %s in %s\n", msg_body,
+                room_id);
         return;
     }
 
@@ -454,10 +498,10 @@ void matrix_room_update_buddy_list(PurpleConversation *conv)
 /**
  * Send a message in a room
  */
-void matrix_room_send_message(struct _PurpleConversation *conv,
-        const gchar *message)
+void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
 {
     JsonObject *content;
+    PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
 
     content = json_object_new();
     json_object_set_string_member(content, "msgtype", "m.text");
@@ -465,5 +509,8 @@ void matrix_room_send_message(struct _PurpleConversation *conv,
 
     _enqueue_event(conv, "m.room.message", content);
     json_object_unref(content);
+
+    purple_conv_chat_write(chat, purple_conv_chat_get_nick(chat),
+            message, PURPLE_MESSAGE_SEND, g_get_real_time()/1000/1000);
 }
 
