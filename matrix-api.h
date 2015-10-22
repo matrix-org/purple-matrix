@@ -38,6 +38,8 @@
 struct _JsonNode;
 struct _JsonObject;
 
+typedef struct _MatrixApiRequestData MatrixApiRequestData;
+
 /**
  * This is the signature used for functions that act as the callback
  * to the matrix api methods
@@ -96,6 +98,18 @@ void matrix_api_bad_response(MatrixAccount *ma, gpointer user_data,
         int http_response_code, struct _JsonNode *json_root);
 
 
+
+
+
+/**
+ * Cancel a call to an API. This will also call the error_callback
+ * with an error message of "cancelled".
+ *
+ * @param request   The result from an earlier matrix_api_* call
+ */
+void matrix_api_cancel(MatrixApiRequestData *request);
+
+
 /**
  * call the /login API
  *
@@ -105,7 +119,7 @@ void matrix_api_bad_response(MatrixAccount *ma, gpointer user_data,
  * @param callback   Function to be called when the request completes
  * @param user_data  Opaque data to be passed to the callback
  */
-PurpleUtilFetchUrlData *matrix_api_password_login(MatrixAccount *account,
+MatrixApiRequestData *matrix_api_password_login(MatrixAccount *account,
         const gchar *username,
         const gchar *password,
         MatrixApiCallback callback,
@@ -121,9 +135,15 @@ PurpleUtilFetchUrlData *matrix_api_password_login(MatrixAccount *account,
  * @param timeout    Number of milliseconds after which the API will time out if
  *                      no events
  * @param callback   Function to be called when the request completes
+ * @param error_callback   Function to be called if there is an error making
+ *                             the request. If NULL, matrix_api_error will be
+ *                             used.
+ * @param bad_response_callback Function to be called if the API gives a non-200
+ *                            response. If NULL, matrix_api_bad_response will be
+ *                            used.
  * @param user_data  Opaque data to be passed to the callback
  */
-PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
+MatrixApiRequestData *matrix_api_sync(MatrixAccount *account,
         const gchar *since, int timeout,
         MatrixApiCallback callback,
         gpointer user_data);
@@ -146,11 +166,25 @@ PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
  *                            used.
  * @param user_data        Opaque data to be passed to the callbacks
  */
-PurpleUtilFetchUrlData *matrix_api_send(MatrixAccount *account,
+MatrixApiRequestData *matrix_api_send(MatrixAccount *account,
         const gchar *room_id, const gchar *event_type, const gchar *txn_id,
         struct _JsonObject *content,
         MatrixApiCallback callback,
         MatrixApiErrorCallback error_callback,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
+
+/**
+ * Get the current state of a room
+ *
+ * @param account          The MatrixAccount for which to make the request
+ * @param room_id          The room to get state for
+ * @param callback         Function to be called when the request completes
+ * @param user_data        Opaque data to be passed to the callbacks
+ */
+MatrixApiRequestData *matrix_api_get_room_state(MatrixAccount *account,
+        const gchar *room_id,
+        MatrixApiCallback callback,
+        gpointer user_data);
+
 #endif

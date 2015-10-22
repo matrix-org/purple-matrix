@@ -32,13 +32,14 @@
 #include "libmatrix.h"
 #include "matrix-json.h"
 
-typedef struct {
+struct _MatrixApiRequestData {
+    PurpleUtilFetchUrlData *purple_data;
     MatrixAccount *account;
     MatrixApiCallback callback;
     MatrixApiErrorCallback error_callback;
     MatrixApiBadResponseCallback bad_response_callback;
     gpointer user_data;
-} MatrixApiRequestData;
+};
 
 
 /**
@@ -56,7 +57,7 @@ void matrix_api_error(MatrixAccount *ma, gpointer user_data,
 {
     purple_debug_info("matrixprpl", "Error calling API: %s\n",
                 error_message);
-    purple_connection_error_reason(ma->pc,
+    purple_connection_error_reason(purple_account_get_connection(ma->pa),
                 PURPLE_CONNECTION_ERROR_NETWORK_ERROR, error_message);
 }
 
@@ -96,8 +97,7 @@ void matrix_api_bad_response(MatrixAccount *ma, gpointer user_data,
                 _("Error from home server"), http_response_code);
     }
 
-
-    purple_connection_error_reason(ma->pc,
+    purple_connection_error_reason(ma->pa->gc,
             PURPLE_CONNECTION_ERROR_OTHER_ERROR,
             error_message);
 
@@ -322,7 +322,7 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
  * @param max_len maximum number of bytes to return from the request. -1 for
  *                default (512K).
  */
-static PurpleUtilFetchUrlData *matrix_api_start(const gchar *url,
+static MatrixApiRequestData *matrix_api_start(const gchar *url,
         const gchar *request, MatrixAccount *account,
         MatrixApiCallback callback, MatrixApiErrorCallback error_callback,
         MatrixApiBadResponseCallback bad_response_callback,
@@ -339,10 +339,22 @@ static PurpleUtilFetchUrlData *matrix_api_start(const gchar *url,
             matrix_api_bad_response : bad_response_callback);
     data->user_data = user_data;
 
-    return purple_util_fetch_url_request_len_with_account(account -> pa,
+    data -> purple_data = purple_util_fetch_url_request_len_with_account(
+            account -> pa,
             url, TRUE, NULL, TRUE, request, TRUE, max_len, matrix_api_complete,
             data);
+    return data;
 }
+
+void matrix_api_cancel(MatrixApiRequestData *data)
+{
+    purple_util_fetch_url_cancel(data -> purple_data);
+    data -> purple_data = NULL;
+    (data->error_callback)(data->account, data->user_data, "cancelled");
+
+    g_free(data);
+}
+
 
 static void _add_proxy_auth_headers(GString *request_str, PurpleProxyInfo *gpi)
 {
@@ -432,14 +444,14 @@ gchar *_build_login_body(const gchar *username, const gchar *password)
     return result;
 }
 
-PurpleUtilFetchUrlData *matrix_api_password_login(MatrixAccount *account,
+MatrixApiRequestData *matrix_api_password_login(MatrixAccount *account,
         const gchar *username,
         const gchar *password,
         MatrixApiCallback callback,
         gpointer user_data)
 {
     gchar *url, *json;
-    PurpleUtilFetchUrlData *fetch_data;
+    MatrixApiRequestData *fetch_data;
     GString *request;
 
     url = g_strconcat(account->homeserver, "/_matrix/client/api/v1/login",
@@ -461,13 +473,13 @@ PurpleUtilFetchUrlData *matrix_api_password_login(MatrixAccount *account,
 }
 
 
-PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
+MatrixApiRequestData *matrix_api_sync(MatrixAccount *account,
         const gchar *since, int timeout,
         MatrixApiCallback callback,
         gpointer user_data)
 {
     GString *url;
-    PurpleUtilFetchUrlData *fetch_data;
+    MatrixApiRequestData *fetch_data;
     
     url = g_string_new("");
     g_string_append_printf(url,
@@ -478,10 +490,7 @@ PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
     if(since != NULL)
         g_string_append_printf(url, "&since=%s", purple_url_encode(since));
 
-    if(purple_debug_is_verbose())
-        purple_debug_info("matrixprpl", "request %s\n", url->str);
-    else
-        purple_debug_info("matrixprpl", "syncing %s since %s\n",
+    purple_debug_info("matrixprpl", "syncing %s since %s\n",
                 account->pa->username, since);
 
     /* XXX: stream the response, so that we don't need to allocate so much
@@ -494,7 +503,7 @@ PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
     return fetch_data;
 }
 
-PurpleUtilFetchUrlData *matrix_api_send(MatrixAccount *account,
+MatrixApiRequestData *matrix_api_send(MatrixAccount *account,
         const gchar *room_id, const gchar *event_type, const gchar *txn_id,
         JsonObject *content, MatrixApiCallback callback,
         MatrixApiErrorCallback error_callback,
@@ -502,7 +511,7 @@ PurpleUtilFetchUrlData *matrix_api_send(MatrixAccount *account,
         gpointer user_data)
 {
     GString *url;
-    PurpleUtilFetchUrlData *fetch_data;
+    MatrixApiRequestData *fetch_data;
     GString *request;
     JsonNode *body_node;
     JsonGenerator *generator;
@@ -534,8 +543,7 @@ PurpleUtilFetchUrlData *matrix_api_send(MatrixAccount *account,
     request = _build_request(account->pa, url->str, "PUT", json);
     g_free(json);
 
-    if(purple_debug_is_unsafe())
-        purple_debug_info("matrixprpl", "request %s\n", request->str);
+    purple_debug_info("matrixprpl", "sending %s on %s\n", event_type, room_id);
 
     fetch_data = matrix_api_start(url->str, request->str, account, callback,
             error_callback, bad_response_callback,

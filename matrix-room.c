@@ -286,7 +286,7 @@ void _event_send_bad_response(MatrixAccount *ma, gpointer user_data,
 
 static void _send_queued_event(PurpleConversation *conv)
 {
-    PurpleUtilFetchUrlData *fetch_data;
+    MatrixApiRequestData *fetch_data;
     MatrixAccount *acct;
     MatrixRoomEvent *event;
 
