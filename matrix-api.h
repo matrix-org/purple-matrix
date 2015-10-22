@@ -33,7 +33,7 @@
 /* libpurple */
 #include "util.h"
 
-#include "libmatrix.h"
+#include "matrix-connection.h"
 
 struct _JsonNode;
 struct _JsonObject;

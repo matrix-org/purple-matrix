@@ -404,9 +404,8 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
 
 
 PurpleConversation *matrix_room_get_or_create_conversation(
-        MatrixConnectionData *ma, const gchar *room_id)
+        PurpleConnection *pc, const gchar *room_id)
 {
-    PurpleConnection *pc = ma->pc;
     PurpleConversation *conv = purple_find_conversation_with_account(
             PURPLE_CONV_TYPE_CHAT, room_id, pc->account);
     MatrixRoomStateEventTable *state_table;

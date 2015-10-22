@@ -1,13 +1,6 @@
 /**
  * matrix-sync.h
  *
- * Receipt of events from the matrix homeserver works by continually polling the
- * /sync API endpoint. This module manages that process. It provides a single
- * method which initiates a /sync request for an authenticated MatrixConnectionData.
- *
- * On completion of the request, any events it returned are dispatched to the
- * relevant rooms, and another /sync request is started.
- *
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,12 +20,21 @@
 #ifndef MATRIX_SYNC_H_
 #define MATRIX_SYNC_H_
 
-#include "libmatrix.h"
+#include <glib.h>
+
+struct _PurpleConnection;
+struct _JsonNode;
 
 /**
- *  Start the sync loop for a matrix account. This will repeatedly call
- * '/sync' to get room information and new events.
+ * Parse and dispatch the results of a /sync call.
+ *
+ * @param pc          Connection to which these results relate
+ * @param body        Body of /sync response
+ * @param next_batch  Returns a pointer to the next_batch setting, for the next
+ *                    sync (or NULL if none was found)
  */
-void matrix_sync_start_loop(MatrixConnectionData *ma);
+void matrix_sync_parse(struct _PurpleConnection *pc, struct _JsonNode *body,
+        const gchar **next_batch);
+
 
 #endif /* MATRIX_SYNC_H_ */

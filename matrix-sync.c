@@ -27,7 +27,6 @@
 #include "debug.h"
 
 /* libmatrix */
-#include "matrix-api.h"
 #include "matrix-json.h"
 #include "matrix-room.h"
 
@@ -38,9 +37,6 @@ typedef struct _RoomEventParserData {
     gboolean state_events;
 } RoomEventParserData;
 
-
-static void matrix_sync_complete(MatrixConnectionData *ma, gpointer user_data,
-        JsonNode *body);
 
 /**
  * handle an event for a room
@@ -95,14 +91,14 @@ static void _parse_room_event_array(PurpleConversation *conv, JsonArray *events,
  * handle a room within the sync response
  */
 static void matrix_sync_room(const gchar *room_id,
-        JsonObject *room_data, MatrixConnectionData *ma)
+        JsonObject *room_data, PurpleConnection *pc)
 {
     JsonObject *state_object, *timeline_object, *event_map;
     JsonArray *state_array, *timeline_array;
     PurpleConversation *conv;
 
     event_map = matrix_json_object_get_object_member(room_data, "event_map");
-    conv = matrix_room_get_or_create_conversation(ma, room_id);
+    conv = matrix_room_get_or_create_conversation(pc, room_id);
 
     /* parse the room state */
     state_object = matrix_json_object_get_object_member(room_data, "state");
@@ -126,13 +122,13 @@ static void matrix_sync_room(const gchar *room_id,
 /**
  * handle the results of the sync request
  */
-static void matrix_handle_sync(MatrixConnectionData *ma, JsonNode *body)
+void matrix_sync_parse(PurpleConnection *pc, JsonNode *body,
+        const gchar **next_batch)
 {
     JsonObject *rootObj;
     JsonObject *rooms;
     JsonObject *joined_rooms;
     GList *room_ids, *elem;
-    const gchar *next_batch;
 
     rootObj = matrix_json_node_get_object(body);
     rooms = matrix_json_object_get_object_member(rootObj, "rooms");
@@ -148,38 +144,10 @@ static void matrix_handle_sync(MatrixConnectionData *ma, JsonNode *body)
         const gchar *room_id = elem->data;
         JsonObject *room_data = matrix_json_object_get_object_member(
                 joined_rooms, room_id);
-        matrix_sync_room(room_id, room_data, ma);
+        matrix_sync_room(room_id, room_data, pc);
     }
     g_list_free(room_ids);
 
-    /* Start the next sync */
-    next_batch = matrix_json_object_get_string_member(rootObj, "next_batch");
-    if(next_batch == NULL) {
-        purple_connection_error_reason(ma->pc,
-            PURPLE_CONNECTION_ERROR_OTHER_ERROR, "No next_batch field");
-        return;
-    }
-    purple_account_set_string(ma->pc->account, PRPL_ACCOUNT_OPT_NEXT_BATCH,
-            next_batch);
-    matrix_api_sync(ma, next_batch, 30000, matrix_sync_complete, NULL);
+    *next_batch = matrix_json_object_get_string_member(rootObj, "next_batch");
 }
 
-/* callback which is called when a /sync request completes */
-static void matrix_sync_complete(MatrixConnectionData *ma, gpointer user_data,
-    JsonNode *body)
-{
-    purple_connection_update_progress(ma->pc, _("Connected"), 2, 3);
-    purple_connection_set_state(ma->pc, PURPLE_CONNECTED);
-
-    matrix_handle_sync(ma, body);
-}
-
-
-void matrix_sync_start_loop(MatrixConnectionData *ma)
-{
-    const char *next_batch;
-    purple_connection_update_progress(ma->pc, _("Initial Sync"), 1, 3);
-    next_batch = purple_account_get_string(ma->pc->account,
-            PRPL_ACCOUNT_OPT_NEXT_BATCH, NULL);
-    matrix_api_sync(ma, next_batch, 0, matrix_sync_complete, NULL);
-}

@@ -33,6 +33,7 @@
 #include "libmatrix.h"
 
 struct _PurpleConversation;
+struct _PurpleConnection;
 
 /**
  * Ensure the room is up to date in the buddy list (ie, it is present,
@@ -48,7 +49,7 @@ void matrix_room_update_buddy_list(struct _PurpleConversation *conv);
  * @param ma       account associated with the chat
  */
 struct _PurpleConversation *matrix_room_get_or_create_conversation(
-        MatrixConnectionData *ma, const gchar *room_id);
+        struct _PurpleConnection *pc, const gchar *room_id);
 
 /**
  * Leave a chat: notify the server that we are leaving, and (ultimately)

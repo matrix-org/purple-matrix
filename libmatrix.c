@@ -45,7 +45,7 @@
 #include "util.h"
 #include "version.h"
 
-#include "matrix-login.h"
+#include "matrix-connection.h"
 #include "matrix-room.h"
 
 /**
@@ -61,6 +61,26 @@ static const char *matrixprpl_list_icon(PurpleAccount *acct, PurpleBuddy *buddy)
 {
     return "matrix";
 }
+
+/**
+ * Start the connection to a matrix account
+ */
+void matrixprpl_login(PurpleAccount *acct)
+{
+    PurpleConnection *pc = purple_account_get_connection(acct);
+    matrix_connection_new(pc);
+    matrix_connection_start_login(pc);
+}
+
+
+/**
+ * Called to handle closing the connection to an account
+ */
+static void matrixprpl_close(PurpleConnection *pc)
+{
+    matrix_connection_free(pc);
+}
+
 
 /* Get the list of information we need to add a chat to our buddy list */
 static GList *matrixprpl_chat_info(PurpleConnection *gc)
@@ -394,12 +414,6 @@ static GList *matrixprpl_blist_node_menu(PurpleBlistNode *node) {
     } else {
         return NULL;
     }
-}
-
-static void matrixprpl_close(PurpleConnection *gc)
-{
-    /* notify other matrixprpl accounts */
-    foreach_matrixprpl_gc(report_status_change, gc, NULL);
 }
 
 static int matrixprpl_send_im(PurpleConnection *gc, const char *who,

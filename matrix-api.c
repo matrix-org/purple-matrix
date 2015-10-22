@@ -450,6 +450,8 @@ MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
 
     if(purple_debug_is_unsafe())
         purple_debug_info("matrixprpl", "request %s\n", request->str);
+    else
+        purple_debug_info("matrixprpl", "logging in %s\n", username);
 
     fetch_data = matrix_api_start(url, request->str, conn, callback,
             NULL, NULL, user_data, 0);
