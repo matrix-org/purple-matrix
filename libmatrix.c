@@ -78,6 +78,7 @@ void matrixprpl_login(PurpleAccount *acct)
  */
 static void matrixprpl_close(PurpleConnection *pc)
 {
+    matrix_connection_cancel_sync(pc);
     matrix_connection_free(pc);
 }
 

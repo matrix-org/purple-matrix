@@ -146,6 +146,8 @@ MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
 MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
         const gchar *since, int timeout,
         MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
 

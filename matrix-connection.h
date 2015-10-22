@@ -34,6 +34,9 @@ typedef struct _MatrixConnectionData {
     struct _PurpleConnection *pc;
     gchar *homeserver;      /* hostname (:port) of the homeserver */
     gchar *access_token;    /* access token corresponding to our user */
+
+    /* the active sync request */
+    struct _MatrixApiRequestData *active_sync;
 } MatrixConnectionData;
 
 
@@ -52,6 +55,11 @@ void matrix_connection_start_login(struct _PurpleConnection *pc);
  * free the resources associated with a PurpleConnection
  */
 void matrix_connection_free(struct _PurpleConnection *pc);
+
+/**
+ * abort the active /sync for this account, in preparation for disconnecting
+ */
+void matrix_connection_cancel_sync(struct _PurpleConnection *pc);
 
 
 #endif

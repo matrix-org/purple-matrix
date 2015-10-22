@@ -66,6 +66,38 @@ void matrix_connection_free(PurpleConnection *pc)
     g_free(conn);
 }
 
+void matrix_connection_cancel_sync(PurpleConnection *pc)
+{
+    MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+    g_assert(conn != NULL);
+    if(conn->active_sync) {
+        purple_debug_info("matrixprpl", "Cancelling active sync on %s\n",
+                pc->account->username);
+        matrix_api_cancel(conn->active_sync);
+    }
+    return;
+}
+
+/**
+ * /sync failed
+ */
+void _sync_error(MatrixConnectionData *ma, gpointer user_data,
+        const gchar *error_message)
+{
+    ma->active_sync = NULL;
+    matrix_api_error(ma, user_data, error_message);
+}
+
+/**
+ * /sync gave non-200 response
+ */
+void _sync_bad_response(MatrixConnectionData *ma, gpointer user_data,
+        int http_response_code, JsonNode *json_root)
+{
+    ma->active_sync = NULL;
+    matrix_api_bad_response(ma, user_data, http_response_code, json_root);
+}
+
 
 /* callback which is called when a /sync request completes */
 static void _sync_complete(MatrixConnectionData *ma, gpointer user_data,
@@ -95,7 +127,8 @@ static void _sync_complete(MatrixConnectionData *ma, gpointer user_data,
 static void _start_next_sync(MatrixConnectionData *ma,
         const gchar *next_batch, int timeout)
 {
-    matrix_api_sync(ma, next_batch, timeout, _sync_complete, NULL);
+    ma->active_sync = matrix_api_sync(ma, next_batch, timeout,
+            _sync_complete, _sync_error, _sync_bad_response, NULL);
 }
 
 static void _login_completed(MatrixConnectionData *conn,
@@ -124,7 +157,6 @@ static void _login_completed(MatrixConnectionData *conn,
 
     purple_connection_update_progress(pc, _("Initial Sync"), 1, 3);
     _start_next_sync(conn, next_batch, 0);
-
 }
 
 

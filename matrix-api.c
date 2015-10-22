@@ -52,7 +52,8 @@ void matrix_api_error(MatrixConnectionData *conn, gpointer user_data,
 {
     purple_debug_info("matrixprpl", "Error calling API: %s\n",
                 error_message);
-    purple_connection_error_reason(conn->pc,
+    if(strcmp(error_message, "cancelled") != 0)
+        purple_connection_error_reason(conn->pc,
             PURPLE_CONNECTION_ERROR_NETWORK_ERROR, error_message);
 }
 
@@ -465,6 +466,8 @@ MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
 MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
         const gchar *since, int timeout,
         MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data)
 {
     GString *url;
@@ -486,7 +489,7 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
      * memory? But it's JSON
      */
     fetch_data = matrix_api_start(url->str, NULL, conn, callback,
-            NULL, NULL, user_data, 10*1024*1024);
+            error_callback, bad_response_callback, user_data, 10*1024*1024);
     g_string_free(url, TRUE);
     
     return fetch_data;
