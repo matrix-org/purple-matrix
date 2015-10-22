@@ -545,3 +545,27 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
 
     return fetch_data;
 }
+
+
+MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
+        const gchar *room_id,
+        MatrixApiCallback callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "/_matrix/client/api/v1/rooms/");
+    g_string_append(url, purple_url_encode(room_id));
+    g_string_append(url, "/state?access_token=");
+    g_string_append(url, purple_url_encode(conn->access_token));
+
+    purple_debug_info("matrixprpl", "getting state for %s\n", room_id);
+
+    fetch_data = matrix_api_start(url->str, NULL, conn, callback,
+            NULL, NULL, user_data, 10*1024*1024);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
+}

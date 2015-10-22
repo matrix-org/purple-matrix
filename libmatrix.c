@@ -83,14 +83,20 @@ static void matrixprpl_close(PurpleConnection *pc)
 }
 
 
-/* Get the list of information we need to add a chat to our buddy list */
+/**
+ * Get the list of information we need to add a chat to our buddy list.
+ *
+ * The first entry is special, and represents the unique "name" by which the
+ * chat is identified in the buddy list with purple_blist_find_chat. In our case
+ * that is room_id.
+ */
 static GList *matrixprpl_chat_info(PurpleConnection *gc)
 {
     struct proto_chat_entry *pce; /* defined in prpl.h */
 
     pce = g_new0(struct proto_chat_entry, 1);
     pce->label = _("Room id");
-	pce->identifier = PRPL_CHAT_INFO_ROOM_ID;
+    pce->identifier = PRPL_CHAT_INFO_ROOM_ID;
     pce->required = TRUE;
 
     return g_list_append(NULL, pce);

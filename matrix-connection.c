@@ -151,6 +151,11 @@ static void _login_completed(MatrixConnectionData *conn,
     }
     conn->access_token = g_strdup(access_token);
 
+    /* TODO: there may be rooms which came through on a previous connection,
+     * but for which we never got the state table. We should update them here
+     * before re-syncing.
+     */
+
     /* start the sync loop */
     next_batch = purple_account_get_string(pc->account,
             PRPL_ACCOUNT_OPT_NEXT_BATCH, NULL);
