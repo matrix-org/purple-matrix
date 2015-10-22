@@ -249,12 +249,7 @@ static void _event_send_complete(MatrixConnectionData *account, gpointer user_da
     purple_conversation_set_data(conv, PURPLE_CONV_DATA_EVENT_QUEUE,
             event_queue);
 
-    if(event_queue) {
-        _send_queued_event(conv);
-    } else {
-        purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
-                NULL);
-    }
+    _send_queued_event(conv);
 }
 
 
@@ -284,22 +279,38 @@ void _event_send_bad_response(MatrixConnectionData *ma, gpointer user_data,
     /* for now, we leave the message queued. We should consider retrying. */
 }
 
+/**
+ * send the next queued event, provided the connection isn't shutting down.
+ *
+ * Updates PURPLE_CONV_DATA_ACTIVE_SEND either way.
+ */
 static void _send_queued_event(PurpleConversation *conv)
 {
-    MatrixApiRequestData *fetch_data;
+    MatrixApiRequestData *fetch_data = NULL;
     MatrixConnectionData *acct;
     MatrixRoomEvent *event;
+    PurpleConnection *pc = conv->account->gc;
+    GList *queue;
 
-    acct = purple_connection_get_protocol_data(conv->account->gc);
-    event = _get_event_queue(conv) -> data;
-    g_assert(event != NULL);
+    acct = purple_connection_get_protocol_data(pc);
+    queue = _get_event_queue(conv);
 
-    purple_debug_info("matrixprpl", "Sending %s with txn id %s\n",
-            event->event_type, event->txn_id);
+    if(queue == NULL) {
+        /* nothing else to send */
+    } else if(pc -> wants_to_die) {
+        /* don't make any more requests if the connection is closing */
+        purple_debug_info("matrixprpl", "Not sending new events on dying"
+                " connection");
+    } else {
+        event = queue -> data;
+        g_assert(event != NULL);
+        purple_debug_info("matrixprpl", "Sending %s with txn id %s\n",
+                event->event_type, event->txn_id);
 
-    fetch_data = matrix_api_send(acct, conv->name, event->event_type,
-            event->txn_id, event->content, _event_send_complete,
-            _event_send_error, _event_send_bad_response, conv);
+        fetch_data = matrix_api_send(acct, conv->name, event->event_type,
+                event->txn_id, event->content, _event_send_complete,
+                _event_send_error, _event_send_bad_response, conv);
+    }
 
     purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
             fetch_data);
@@ -332,7 +343,6 @@ static void _enqueue_event(PurpleConversation *conv, const gchar *event_type,
     } else {
         _send_queued_event(conv);
     }
-
 }
 
 /*****************************************************************************/
