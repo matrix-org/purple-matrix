@@ -50,11 +50,10 @@
 /* identifiers for the chat info / "components" */
 #define PRPL_CHAT_INFO_ROOM_ID "room_id"
 
-typedef struct _MatrixAccount {
-    struct _PurpleAccount *pa;
+typedef struct _MatrixConnectionData {
     struct _PurpleConnection *pc;
     gchar *homeserver;      /* hostname (:port) of the homeserver */
     gchar *access_token;    /* access token corresponding to our user */
-} MatrixAccount;
+} MatrixConnectionData;
 
 #endif

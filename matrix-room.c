@@ -226,7 +226,7 @@ static GList *_get_event_queue(PurpleConversation *conv)
     return purple_conversation_get_data(conv, PURPLE_CONV_DATA_EVENT_QUEUE);
 }
 
-static void _event_send_complete(MatrixAccount *account, gpointer user_data,
+static void _event_send_complete(MatrixConnectionData *account, gpointer user_data,
       JsonNode *json_root)
 {
     PurpleConversation *conv = user_data;
@@ -261,7 +261,7 @@ static void _event_send_complete(MatrixAccount *account, gpointer user_data,
 /**
  * Unable to send event to homeserver
  */
-void _event_send_error(MatrixAccount *ma, gpointer user_data,
+void _event_send_error(MatrixConnectionData *ma, gpointer user_data,
         const gchar *error_message)
 {
     PurpleConversation *conv = user_data;
@@ -274,7 +274,7 @@ void _event_send_error(MatrixAccount *ma, gpointer user_data,
 /**
  * homeserver gave non-200 on event send.
  */
-void _event_send_bad_response(MatrixAccount *ma, gpointer user_data,
+void _event_send_bad_response(MatrixConnectionData *ma, gpointer user_data,
         int http_response_code, JsonNode *json_root)
 {
     PurpleConversation *conv = user_data;
@@ -287,7 +287,7 @@ void _event_send_bad_response(MatrixAccount *ma, gpointer user_data,
 static void _send_queued_event(PurpleConversation *conv)
 {
     MatrixApiRequestData *fetch_data;
-    MatrixAccount *acct;
+    MatrixConnectionData *acct;
     MatrixRoomEvent *event;
 
     acct = purple_connection_get_protocol_data(conv->account->gc);
@@ -404,10 +404,11 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
 
 
 PurpleConversation *matrix_room_get_or_create_conversation(
-        MatrixAccount *ma, const gchar *room_id)
+        MatrixConnectionData *ma, const gchar *room_id)
 {
+    PurpleConnection *pc = ma->pc;
     PurpleConversation *conv = purple_find_conversation_with_account(
-            PURPLE_CONV_TYPE_CHAT, room_id, ma->pa);
+            PURPLE_CONV_TYPE_CHAT, room_id, pc->account);
     MatrixRoomStateEventTable *state_table;
 
     if(conv != NULL) {
@@ -417,7 +418,7 @@ PurpleConversation *matrix_room_get_or_create_conversation(
     purple_debug_info("matrixprpl", "New room %s\n", room_id);
 
     /* tell purple we have joined this chat */
-    conv = serv_got_joined_chat(ma->pc, g_str_hash(room_id), room_id);
+    conv = serv_got_joined_chat(pc, g_str_hash(room_id), room_id);
 
     /* set our data on it */
     state_table = _create_state_table();

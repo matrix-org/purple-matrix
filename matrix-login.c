@@ -31,7 +31,7 @@
 #include "matrix-json.h"
 #include "matrix-sync.h"
 
-static void _login_completed(MatrixAccount *account,
+static void _login_completed(MatrixConnectionData *conn,
         gpointer user_data,
         JsonNode *json_root)
 {
@@ -41,23 +41,22 @@ static void _login_completed(MatrixAccount *account,
     root_obj = matrix_json_node_get_object(json_root);
     access_token = matrix_json_object_get_string_member(root_obj, "access_token");
     if(access_token == NULL) {
-        purple_connection_error_reason(account->pc,
+        purple_connection_error_reason(conn->pc,
                 PURPLE_CONNECTION_ERROR_OTHER_ERROR,
                 "No access_token in /login response");
         return;
     }
-    account->access_token = g_strdup(access_token); /* TODO: free */
-    matrix_sync_start_loop(account);
+    conn->access_token = g_strdup(access_token); /* TODO: free */
+    matrix_sync_start_loop(conn);
 }
 
 
 void matrixprpl_login(PurpleAccount *acct)
 {
     PurpleConnection *pc = purple_account_get_connection(acct);
-    MatrixAccount *ma = g_new0(MatrixAccount, 1); /* TODO: free */
+    MatrixConnectionData *ma = g_new0(MatrixConnectionData, 1); /* TODO: free */
 
     purple_connection_set_protocol_data(pc, ma);
-    ma->pa = acct;
     ma->pc = pc;
 
     purple_connection_set_state(ma->pc, PURPLE_CONNECTING);

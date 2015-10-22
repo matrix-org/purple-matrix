@@ -3,7 +3,7 @@
  *
  * Receipt of events from the matrix homeserver works by continually polling the
  * /sync API endpoint. This module manages that process. It provides a single
- * method which initiates a /sync request for an authenticated MatrixAccount.
+ * method which initiates a /sync request for an authenticated MatrixConnectionData.
  *
  * On completion of the request, any events it returned are dispatched to the
  * relevant rooms, and another /sync request is started.
@@ -33,6 +33,6 @@
  *  Start the sync loop for a matrix account. This will repeatedly call
  * '/sync' to get room information and new events.
  */
-void matrix_sync_start_loop(MatrixAccount *ma);
+void matrix_sync_start_loop(MatrixConnectionData *ma);
 
 #endif /* MATRIX_SYNC_H_ */

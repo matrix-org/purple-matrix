@@ -48,7 +48,7 @@ void matrix_room_update_buddy_list(struct _PurpleConversation *conv);
  * @param ma       account associated with the chat
  */
 struct _PurpleConversation *matrix_room_get_or_create_conversation(
-        MatrixAccount *ma, const gchar *room_id);
+        MatrixConnectionData *ma, const gchar *room_id);
 
 /**
  * Leave a chat: notify the server that we are leaving, and (ultimately)

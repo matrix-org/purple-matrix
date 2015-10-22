@@ -4,7 +4,7 @@
  * The intention is that this module provides an interface to the matrix API
  * without anything purple-specific.
  *
- * Each API method takes a 'MatrixAccount *'; this is used to determine the
+ * Each API method takes a 'MatrixConnectionData *'; this is used to determine the
  * URL of the homeserver, and the access_token which is used for authorisation.
  *
  * The methods are asyncronous, and take a callback to be called when the method
@@ -44,14 +44,14 @@ typedef struct _MatrixApiRequestData MatrixApiRequestData;
  * This is the signature used for functions that act as the callback
  * to the matrix api methods
  *
- * @param account       The MatrixAccount passed into the api method
+ * @param conn          The MatrixConnectionData passed into the api method
  * @param user_data     The user data that your code passed into the api
  *                      method.
  * @param json_root     NULL if there was no body, or it could not be
  *                          parsed as JSON; otherwise the root of the JSON
  *                          tree in the response
  */
-typedef void (*MatrixApiCallback)(MatrixAccount *account,
+typedef void (*MatrixApiCallback)(MatrixConnectionData *conn,
                                   gpointer user_data,
                                   struct _JsonNode *json_root);
 
@@ -59,34 +59,34 @@ typedef void (*MatrixApiCallback)(MatrixAccount *account,
  * Signature for functions which are called when there is an error calling the
  * API (such as a connection failure)
  *
- * @param account          The MatrixAccount passed into the api method
+ * @param conn             The MatrixConnectionData passed into the api method
  * @param user_data        The user data that your code passed into the api
  *                             method.
  * @param error_message    a descriptive error message
  *
  */
-typedef void (*MatrixApiErrorCallback)(MatrixAccount *ma, gpointer user_data,
-        const gchar *error_message);
+typedef void (*MatrixApiErrorCallback)(MatrixConnectionData *conn,
+        gpointer user_data, const gchar *error_message);
 
 /**
  * Default error callback. We just put the connection into the "error" state.
  */
-void matrix_api_error(MatrixAccount *ma, gpointer user_data,
+void matrix_api_error(MatrixConnectionData *conn, gpointer user_data,
         const gchar *error_message);
 
 /**
  * Signature for functions which are called when the API returns a non-200
  * response.
  *
- * @param account             The MatrixAccount passed into the api method
- * @param user_data           The user data that your code passed into the api
- *                                method.
- * @param http_response       HTTP response code.
- * @param json_root           NULL if there was no body, or it could not be
- *                                parsed as JSON; otherwise the root of the JSON
- *                                tree in the response
+ * @param conn            The MatrixConnectionData passed into the api method
+ * @param user_data       The user data that your code passed into the api
+ *                            method.
+ * @param http_response   HTTP response code.
+ * @param json_root       NULL if there was no body, or it could not be
+ *                            parsed as JSON; otherwise the root of the JSON
+ *                            tree in the response
  */
-typedef void (*MatrixApiBadResponseCallback)(MatrixAccount *ma,
+typedef void (*MatrixApiBadResponseCallback)(MatrixConnectionData *conn,
         gpointer user_data, int http_response_code,
         struct _JsonNode *json_root);
 
@@ -94,7 +94,7 @@ typedef void (*MatrixApiBadResponseCallback)(MatrixAccount *ma,
  * Default bad-response callback. We just put the connection into the "error"
  * state.
  */
-void matrix_api_bad_response(MatrixAccount *ma, gpointer user_data,
+void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
         int http_response_code, struct _JsonNode *json_root);
 
 
@@ -113,13 +113,13 @@ void matrix_api_cancel(MatrixApiRequestData *request);
 /**
  * call the /login API
  *
- * @param account    The MatrixAccount for which to make the request
+ * @param conn       The connection with which to make the request
  * @param username   user id to pass in request
  * @param password   password to pass in request
  * @param callback   Function to be called when the request completes
  * @param user_data  Opaque data to be passed to the callback
  */
-MatrixApiRequestData *matrix_api_password_login(MatrixAccount *account,
+MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
         const gchar *username,
         const gchar *password,
         MatrixApiCallback callback,
@@ -130,7 +130,7 @@ MatrixApiRequestData *matrix_api_password_login(MatrixAccount *account,
 /**
  * call the /sync API
  *
- * @param account    The MatrixAccount for which to make the request
+ * @param conn       The connection with which to make the request
  * @param since      If non-null, the batch token to start sync from
  * @param timeout    Number of milliseconds after which the API will time out if
  *                      no events
@@ -143,7 +143,7 @@ MatrixApiRequestData *matrix_api_password_login(MatrixAccount *account,
  *                            used.
  * @param user_data  Opaque data to be passed to the callback
  */
-MatrixApiRequestData *matrix_api_sync(MatrixAccount *account,
+MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
         const gchar *since, int timeout,
         MatrixApiCallback callback,
         gpointer user_data);
@@ -152,7 +152,7 @@ MatrixApiRequestData *matrix_api_sync(MatrixAccount *account,
 /**
  * Send an event to a room
  *
- * @param account          The MatrixAccount for which to make the request
+ * @param conn       The connection with which to make the request
  * @param room_id          The room to send the event to
  * @param event_type       The type of event (eg "m.room.message")
  * @param txn_id           Unique transaction id
@@ -166,7 +166,7 @@ MatrixApiRequestData *matrix_api_sync(MatrixAccount *account,
  *                            used.
  * @param user_data        Opaque data to be passed to the callbacks
  */
-MatrixApiRequestData *matrix_api_send(MatrixAccount *account,
+MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
         const gchar *room_id, const gchar *event_type, const gchar *txn_id,
         struct _JsonObject *content,
         MatrixApiCallback callback,
@@ -177,12 +177,12 @@ MatrixApiRequestData *matrix_api_send(MatrixAccount *account,
 /**
  * Get the current state of a room
  *
- * @param account          The MatrixAccount for which to make the request
+ * @param conn             The connection with which to make the request
  * @param room_id          The room to get state for
  * @param callback         Function to be called when the request completes
  * @param user_data        Opaque data to be passed to the callbacks
  */
-MatrixApiRequestData *matrix_api_get_room_state(MatrixAccount *account,
+MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
         const gchar *room_id,
         MatrixApiCallback callback,
         gpointer user_data);

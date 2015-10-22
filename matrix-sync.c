@@ -39,7 +39,7 @@ typedef struct _RoomEventParserData {
 } RoomEventParserData;
 
 
-static void matrix_sync_complete(MatrixAccount *ma, gpointer user_data,
+static void matrix_sync_complete(MatrixConnectionData *ma, gpointer user_data,
         JsonNode *body);
 
 /**
@@ -95,7 +95,7 @@ static void _parse_room_event_array(PurpleConversation *conv, JsonArray *events,
  * handle a room within the sync response
  */
 static void matrix_sync_room(const gchar *room_id,
-        JsonObject *room_data, MatrixAccount *ma)
+        JsonObject *room_data, MatrixConnectionData *ma)
 {
     JsonObject *state_object, *timeline_object, *event_map;
     JsonArray *state_array, *timeline_array;
@@ -126,7 +126,7 @@ static void matrix_sync_room(const gchar *room_id,
 /**
  * handle the results of the sync request
  */
-static void matrix_handle_sync(MatrixAccount *ma, JsonNode *body)
+static void matrix_handle_sync(MatrixConnectionData *ma, JsonNode *body)
 {
     JsonObject *rootObj;
     JsonObject *rooms;
@@ -159,27 +159,27 @@ static void matrix_handle_sync(MatrixAccount *ma, JsonNode *body)
             PURPLE_CONNECTION_ERROR_OTHER_ERROR, "No next_batch field");
         return;
     }
-    purple_account_set_string(ma->pa, PRPL_ACCOUNT_OPT_NEXT_BATCH,
+    purple_account_set_string(ma->pc->account, PRPL_ACCOUNT_OPT_NEXT_BATCH,
             next_batch);
     matrix_api_sync(ma, next_batch, 30000, matrix_sync_complete, NULL);
 }
 
 /* callback which is called when a /sync request completes */
-static void matrix_sync_complete(MatrixAccount *ma, gpointer user_data,
+static void matrix_sync_complete(MatrixConnectionData *ma, gpointer user_data,
     JsonNode *body)
 {
     purple_connection_update_progress(ma->pc, _("Connected"), 2, 3);
-    purple_connection_set_state(ma->pa->gc, PURPLE_CONNECTED);
+    purple_connection_set_state(ma->pc, PURPLE_CONNECTED);
 
     matrix_handle_sync(ma, body);
 }
 
 
-void matrix_sync_start_loop(MatrixAccount *ma)
+void matrix_sync_start_loop(MatrixConnectionData *ma)
 {
     const char *next_batch;
     purple_connection_update_progress(ma->pc, _("Initial Sync"), 1, 3);
-    next_batch = purple_account_get_string(ma->pa,
+    next_batch = purple_account_get_string(ma->pc->account,
             PRPL_ACCOUNT_OPT_NEXT_BATCH, NULL);
     matrix_api_sync(ma, next_batch, 0, matrix_sync_complete, NULL);
 }
