@@ -48,6 +48,19 @@
 #include "matrix-login.h"
 #include "matrix-room.h"
 
+/**
+ * Called to get the icon name for the given buddy and account.
+ *
+ * If buddy is NULL and the account is non-NULL, it will return the
+ * name to use for the account's icon. If both are NULL, it will
+ * return the name to use for the protocol's icon.
+ *
+ * For now, everything just uses the 'matrix' icon.
+ */
+static const char *matrixprpl_list_icon(PurpleAccount *acct, PurpleBuddy *buddy)
+{
+    return "matrix";
+}
 
 /* Get the list of information we need to add a chat to our buddy list */
 static GList *matrixprpl_chat_info(PurpleConnection *gc)
@@ -273,10 +286,6 @@ static GList *matrixprpl_actions(PurplePlugin *plugin, gpointer context)
 /*
  * prpl functions
  */
-static const char *matrixprpl_list_icon(PurpleAccount *acct, PurpleBuddy *buddy)
-{
-    return "matrix";
-}
 
 static char *matrixprpl_status_text(PurpleBuddy *buddy) {
     purple_debug_info("matrixprpl", "getting %s's status text for %s\n",
