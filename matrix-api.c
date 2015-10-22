@@ -462,7 +462,7 @@ PurpleUtilFetchUrlData *matrix_api_password_login(MatrixAccount *account,
 
 
 PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
-        const gchar *since,
+        const gchar *since, int timeout,
         MatrixApiCallback callback,
         gpointer user_data)
 {
@@ -471,14 +471,18 @@ PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
     
     url = g_string_new("");
     g_string_append_printf(url,
-            "%s/_matrix/client/v2_alpha/sync?access_token=%s",
-            account->homeserver, purple_url_encode(account->access_token));
+            "%s/_matrix/client/v2_alpha/sync?access_token=%s&timeout=%i",
+            account->homeserver, purple_url_encode(account->access_token),
+            timeout);
 
     if(since != NULL)
-        g_string_append_printf(url, "&timeout=30000&since=%s", since);
+        g_string_append_printf(url, "&since=%s", purple_url_encode(since));
 
     if(purple_debug_is_verbose())
         purple_debug_info("matrixprpl", "request %s\n", url->str);
+    else
+        purple_debug_info("matrixprpl", "syncing %s since %s\n",
+                account->pa->username, since);
 
     /* XXX: stream the response, so that we don't need to allocate so much
      * memory? But it's JSON

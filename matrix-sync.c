@@ -159,7 +159,9 @@ static void matrix_handle_sync(MatrixAccount *ma, JsonNode *body)
             PURPLE_CONNECTION_ERROR_OTHER_ERROR, "No next_batch field");
         return;
     }
-    matrix_api_sync(ma, next_batch, matrix_sync_complete, NULL);
+    purple_account_set_string(ma->pa, PRPL_ACCOUNT_OPT_NEXT_BATCH,
+            next_batch);
+    matrix_api_sync(ma, next_batch, 30000, matrix_sync_complete, NULL);
 }
 
 /* callback which is called when a /sync request completes */
@@ -175,6 +177,9 @@ static void matrix_sync_complete(MatrixAccount *ma, gpointer user_data,
 
 void matrix_sync_start_loop(MatrixAccount *ma)
 {
+    const char *next_batch;
     purple_connection_update_progress(ma->pc, _("Initial Sync"), 1, 3);
-    matrix_api_sync(ma, NULL, matrix_sync_complete, NULL);
+    next_batch = purple_account_get_string(ma->pa,
+            PRPL_ACCOUNT_OPT_NEXT_BATCH, NULL);
+    matrix_api_sync(ma, next_batch, 0, matrix_sync_complete, NULL);
 }

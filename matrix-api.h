@@ -118,11 +118,13 @@ PurpleUtilFetchUrlData *matrix_api_password_login(MatrixAccount *account,
  *
  * @param account    The MatrixAccount for which to make the request
  * @param since      If non-null, the batch token to start sync from
+ * @param timeout    Number of milliseconds after which the API will time out if
+ *                      no events
  * @param callback   Function to be called when the request completes
  * @param user_data  Opaque data to be passed to the callback
  */
 PurpleUtilFetchUrlData *matrix_api_sync(MatrixAccount *account,
-        const gchar *since,
+        const gchar *since, int timeout,
         MatrixApiCallback callback,
         gpointer user_data);
 

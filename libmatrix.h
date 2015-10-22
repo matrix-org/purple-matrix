@@ -35,8 +35,14 @@
 /* our protocol ID string */
 #define PRPL_ID "prpl-matrix"
 
-/* identifiers for account options */
+/* identifiers for account options
+ *
+ * some of these are registered as options for the UI, and some are strictly
+ * internal. But they end up in the same place in the settings file, so they
+ * share a namespace.
+ */
 #define PRPL_ACCOUNT_OPT_HOME_SERVER "home_server"
+#define PRPL_ACCOUNT_OPT_NEXT_BATCH "next_batch"
 
 /* defaults for account options */
 #define DEFAULT_HOME_SERVER "https://matrix.org"
