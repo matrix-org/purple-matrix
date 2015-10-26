@@ -61,6 +61,9 @@ void matrix_connection_free(PurpleConnection *pc)
     g_free(conn->access_token);
     conn->access_token = NULL;
 
+    g_free(conn->user_id);
+    conn->user_id = NULL;
+
     conn->pc = NULL;
 
     g_free(conn);
@@ -150,6 +153,8 @@ static void _login_completed(MatrixConnectionData *conn,
         return;
     }
     conn->access_token = g_strdup(access_token);
+    conn->user_id = g_strdup(matrix_json_object_get_string_member(root_obj,
+            "user_id"));
 
     /* TODO: there may be rooms which came through on a previous connection,
      * but for which we never got the state table. We should update them here

@@ -115,7 +115,8 @@ static void matrix_sync_room(const gchar *room_id,
         _parse_room_event_array(conv, timeline_array, event_map, FALSE);
 
     /* ensure the buddy list is up to date*/
-    matrix_room_update_buddy_list(conv);
+    matrix_room_update_buddy_list(purple_connection_get_protocol_data(pc),
+            conv);
 }
 
 

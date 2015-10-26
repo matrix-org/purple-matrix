@@ -33,6 +33,7 @@ struct _PurpleConnection;
 typedef struct _MatrixConnectionData {
     struct _PurpleConnection *pc;
     gchar *homeserver;      /* hostname (:port) of the homeserver */
+    gchar *user_id;         /* our full user id ("@user:server") */
     gchar *access_token;    /* access token corresponding to our user */
 
     /* the active sync request */

@@ -34,14 +34,17 @@
 
 struct _PurpleConversation;
 struct _PurpleConnection;
+struct _MatrixConnectionData;
 
 /**
  * Ensure the room is up to date in the buddy list (ie, it is present,
  * and the alias is correct)
  *
+ * @param conn   connection data for the account
  * @param conv   conversation info
  */
-void matrix_room_update_buddy_list(struct _PurpleConversation *conv);
+void matrix_room_update_buddy_list(struct _MatrixConnectionData *conn,
+        struct _PurpleConversation *conv);
 
 /**
  * If this is an active conversation, return it; otherwise, create it anew.
