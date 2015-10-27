@@ -153,54 +153,6 @@ void matrix_room_update_state_table(PurpleConversation *conv,
 
 
 /**
- * Iterator for _state_update_complete
- *
- * @param state        the complete state array (unused)
- * @param state_id     position within the array (unused)
- * @param state_entry  the event id to be handled
- * @param user_data    a RoomEventParserData
- */
-static void _parse_state_event(JsonArray *event_array, guint event_idx,
-        JsonNode *event, gpointer user_data)
-{
-    PurpleConversation *conv = user_data;
-    JsonObject *event_obj;
-    const gchar *event_id;
-
-    event_obj = matrix_json_node_get_object(event);
-    event_id = matrix_json_object_get_string_member(event_obj, "event_id");
-    if(event_id != NULL)
-        matrix_room_update_state_table(conv, event_id, event_obj);
-}
-
-/**
- * Callback for matrix_room_initiate_state_update
- */
-static void _state_update_complete(MatrixConnectionData *conn,
-        gpointer user_data, JsonNode *json_root)
-{
-    PurpleConversation *conv = user_data;
-    JsonArray *response_array;
-
-    response_array = matrix_json_node_get_array(json_root);
-    if(response_array != NULL)
-        json_array_foreach_element(response_array, _parse_state_event, conv);
-    matrix_room_update_buddy_list(conn, conv);
-}
-
-
-/**
- * Initiate a call to the API to update the state on this room
- */
-void matrix_room_initiate_state_update(PurpleConversation *conv)
-{
-    MatrixConnectionData *conn;
-    conn = purple_connection_get_protocol_data(conv->account->gc);
-    matrix_api_get_room_state(conn, conv->name, _state_update_complete, conv);
-}
-
-
-/**
  * look up a particular bit of state
  *
  * @returns null if this key ies not known
@@ -604,8 +556,6 @@ PurpleConversation *matrix_room_get_or_create_conversation(
     purple_conversation_set_data(conv, PURPLE_CONV_DATA_STATE, state_table);
     purple_conversation_set_data(conv, PURPLE_CONV_DATA_EVENT_QUEUE, NULL);
     purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND, NULL);
-
-    matrix_room_initiate_state_update(conv);
 
     return conv;
 }

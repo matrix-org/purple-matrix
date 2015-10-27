@@ -464,7 +464,7 @@ MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
 
 
 MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
-        const gchar *since, int timeout,
+        const gchar *since, int timeout, gboolean full_state,
         MatrixApiCallback callback,
         MatrixApiErrorCallback error_callback,
         MatrixApiBadResponseCallback bad_response_callback,
@@ -482,8 +482,11 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
     if(since != NULL)
         g_string_append_printf(url, "&since=%s", purple_url_encode(since));
 
-    purple_debug_info("matrixprpl", "syncing %s since %s\n",
-                conn->pc->account->username, since);
+    if(full_state)
+        g_string_append(url, "&full_state=true");
+
+    purple_debug_info("matrixprpl", "syncing %s since %s (full_state=%i)\n",
+                conn->pc->account->username, since, full_state);
 
     /* XXX: stream the response, so that we don't need to allocate so much
      * memory? But it's JSON

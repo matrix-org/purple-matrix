@@ -33,7 +33,7 @@
 #include "matrix-sync.h"
 
 static void _start_next_sync(MatrixConnectionData *ma,
-        const gchar *next_batch, int timeout);
+        const gchar *next_batch, gboolean full_state);
 
 
 void matrix_connection_new(PurpleConnection *pc)
@@ -123,16 +123,31 @@ static void _sync_complete(MatrixConnectionData *ma, gpointer user_data,
     purple_account_set_string(pc->account, PRPL_ACCOUNT_OPT_NEXT_BATCH,
             next_batch);
 
-    _start_next_sync(ma, next_batch, 30000);
+    _start_next_sync(ma, next_batch, FALSE);
 }
 
 
 static void _start_next_sync(MatrixConnectionData *ma,
-        const gchar *next_batch, int timeout)
+        const gchar *next_batch, gboolean full_state)
 {
-    ma->active_sync = matrix_api_sync(ma, next_batch, timeout,
+    ma->active_sync = matrix_api_sync(ma, next_batch, 30000, full_state,
             _sync_complete, _sync_error, _sync_bad_response, NULL);
 }
+
+
+static gboolean _account_has_active_conversations(PurpleAccount *account)
+{
+    GList *ptr;
+
+    for(ptr = purple_get_conversations(); ptr != NULL; ptr = g_list_next(ptr))
+    {
+        PurpleConversation *conv = ptr->data;
+        if(conv -> account == account)
+            return TRUE;
+    }
+    return FALSE;
+}
+
 
 static void _login_completed(MatrixConnectionData *conn,
         gpointer user_data,
@@ -142,6 +157,7 @@ static void _login_completed(MatrixConnectionData *conn,
     JsonObject *root_obj;
     const gchar *access_token;
     const gchar *next_batch;
+    gboolean needs_full_state_sync = TRUE;
 
     root_obj = matrix_json_node_get_object(json_root);
     access_token = matrix_json_object_get_string_member(root_obj,
@@ -156,17 +172,27 @@ static void _login_completed(MatrixConnectionData *conn,
     conn->user_id = g_strdup(matrix_json_object_get_string_member(root_obj,
             "user_id"));
 
-    /* TODO: there may be rooms which came through on a previous connection,
-     * but for which we never got the state table. We should update them here
-     * before re-syncing.
-     */
-
     /* start the sync loop */
     next_batch = purple_account_get_string(pc->account,
             PRPL_ACCOUNT_OPT_NEXT_BATCH, NULL);
 
-    purple_connection_update_progress(pc, _("Initial Sync"), 1, 3);
-    _start_next_sync(conn, next_batch, 0);
+    if(next_batch != NULL) {
+        /* if we have previously done a full_state sync on this account, there's
+         * no need to do another. If there are already conversations associated
+         * with this account, that is a pretty good indication that we have
+         * previously done a full_state sync.
+         */
+        if(_account_has_active_conversations(pc->account))
+            needs_full_state_sync = FALSE;
+    }
+
+    if(needs_full_state_sync) {
+        purple_connection_update_progress(pc, _("Initial Sync"), 1, 3);
+    } else {
+        purple_connection_update_progress(pc, _("Connected"), 2, 3);
+        purple_connection_set_state(pc, PURPLE_CONNECTED);
+    }
+    _start_next_sync(conn, next_batch, needs_full_state_sync);
 }
 
 

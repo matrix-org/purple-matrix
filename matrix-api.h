@@ -134,7 +134,9 @@ MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
  * @param since      If non-null, the batch token to start sync from
  * @param timeout    Number of milliseconds after which the API will time out if
  *                      no events
- * @param callback   Function to be called when the request completes
+ * @param full_state       If true, will do a full state sync instead of an
+ *                             incremental sync
+ * @param callback         Function to be called when the request completes
  * @param error_callback   Function to be called if there is an error making
  *                             the request. If NULL, matrix_api_error will be
  *                             used.
@@ -144,7 +146,7 @@ MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
  * @param user_data  Opaque data to be passed to the callback
  */
 MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
-        const gchar *since, int timeout,
+        const gchar *since, int timeout, gboolean full_state,
         MatrixApiCallback callback,
         MatrixApiErrorCallback error_callback,
         MatrixApiBadResponseCallback bad_response_callback,
