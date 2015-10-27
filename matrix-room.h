@@ -34,24 +34,17 @@
 
 struct _PurpleConversation;
 struct _PurpleConnection;
-struct _MatrixConnectionData;
 
 /**
- * Ensure the room is up to date in the buddy list (ie, it is present,
- * and the alias is correct)
- *
  * @param conn   connection data for the account
  * @param conv   conversation info
  */
-void matrix_room_update_buddy_list(struct _MatrixConnectionData *conn,
-        struct _PurpleConversation *conv);
+void matrix_room_handle_initial_state(struct _PurpleConversation *conv);
 
 /**
- * If this is an active conversation, return it; otherwise, create it anew.
- *
- * @param ma       account associated with the chat
+ * Create a new conversation for the given room
  */
-struct _PurpleConversation *matrix_room_get_or_create_conversation(
+struct _PurpleConversation *matrix_room_create_conversation(
         struct _PurpleConnection *pc, const gchar *room_id);
 
 /**
@@ -88,8 +81,10 @@ void matrix_room_send_message(struct _PurpleConversation *conv,
  * @param event_id    id of the event
  * @param json_event_obj  the event object.
  */
-void matrix_room_update_state_table(struct _PurpleConversation *conv,
-        const gchar *event_id, JsonObject *json_event_obj);
+
+void matrix_room_handle_state_event(struct _PurpleConversation *conv,
+        const gchar *event_id, JsonObject *json_event_obj,
+        gboolean suppress_state_update_notifications);
 
 
 #endif

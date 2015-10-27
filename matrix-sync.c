@@ -35,6 +35,7 @@ typedef struct _RoomEventParserData {
     PurpleConversation *conv;
     JsonObject *event_map;
     gboolean state_events;
+    gboolean initial_sync;
 } RoomEventParserData;
 
 
@@ -69,20 +70,19 @@ static void _parse_room_event(JsonArray *event_array, guint event_idx,
     }
 
     if(data->state_events)
-        matrix_room_update_state_table(conv, event_id, json_event_obj);
+        matrix_room_handle_state_event(conv, event_id, json_event_obj,
+                data->initial_sync);
     else
         matrix_room_handle_timeline_event(conv, event_id, json_event_obj);
-
-
 }
 
 /**
  * parse the list of events in a sync response
  */
 static void _parse_room_event_array(PurpleConversation *conv, JsonArray *events,
-        JsonObject* event_map, gboolean state_events)
+        JsonObject* event_map, gboolean state_events, gboolean initial_sync)
 {
-    RoomEventParserData data = {conv, event_map, state_events};
+    RoomEventParserData data = {conv, event_map, state_events, initial_sync};
     json_array_foreach_element(events, _parse_room_event, &data);
 }
 
@@ -96,15 +96,27 @@ static void matrix_sync_room(const gchar *room_id,
     JsonObject *state_object, *timeline_object, *event_map;
     JsonArray *state_array, *timeline_array;
     PurpleConversation *conv;
+    gboolean initial_sync = FALSE;
+
+    conv = purple_find_conversation_with_account(
+            PURPLE_CONV_TYPE_CHAT, room_id, pc->account);
+
+    if(conv == NULL) {
+        conv = matrix_room_create_conversation(pc, room_id);
+        initial_sync = TRUE;
+    }
 
     event_map = matrix_json_object_get_object_member(room_data, "event_map");
-    conv = matrix_room_get_or_create_conversation(pc, room_id);
 
     /* parse the room state */
     state_object = matrix_json_object_get_object_member(room_data, "state");
     state_array = matrix_json_object_get_array_member(state_object, "events");
     if(state_array != NULL)
-        _parse_room_event_array(conv, state_array, event_map, TRUE);
+        _parse_room_event_array(conv, state_array, event_map, TRUE,
+                initial_sync);
+    if(initial_sync)
+        matrix_room_handle_initial_state(conv);
+
 
     /* parse the timeline events */
     timeline_object = matrix_json_object_get_object_member(
@@ -112,11 +124,8 @@ static void matrix_sync_room(const gchar *room_id,
     timeline_array = matrix_json_object_get_array_member(
                 timeline_object, "events");
     if(timeline_array != NULL)
-        _parse_room_event_array(conv, timeline_array, event_map, FALSE);
-
-    /* ensure the buddy list is up to date*/
-    matrix_room_update_buddy_list(purple_connection_get_protocol_data(pc),
-            conv);
+        _parse_room_event_array(conv, timeline_array, event_map, FALSE,
+                initial_sync);
 }
 
 
