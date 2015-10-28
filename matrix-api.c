@@ -329,7 +329,7 @@ static MatrixApiRequestData *matrix_api_start(const gchar *url,
 
     data -> purple_data = purple_util_fetch_url_request_len_with_account(
             conn -> pc -> account,
-            url, TRUE, NULL, TRUE, request, TRUE, max_len, matrix_api_complete,
+            url, FALSE, NULL, TRUE, request, TRUE, max_len, matrix_api_complete,
             data);
     return data;
 }
@@ -382,29 +382,77 @@ static void _add_proxy_auth_headers(GString *request_str, PurpleProxyInfo *gpi)
 }
 
 
+/**
+ * parse a URL as much as we need
+ *
+ * @param url    url to be parsed
+ * @param host   returns a pointer to the start of the hostname, or NULL if none
+ * @param path   returns a pointer to the start of the path
+ */
+static void _parse_url(const gchar *url, const gchar **host, const gchar **path)
+{
+    const gchar *ptr;
+
+    /* find the separator between the host and the path */
+    /* first find the end of the scheme */
+    ptr = url;
+    while(*ptr != ':' && *ptr != '/' && *ptr != '\0')
+        ptr++;
+
+    if(*ptr != ':') {
+        /* no scheme, so presumably no hostname - it's a relative path */
+        *host = NULL;
+        *path = ptr;
+        return;
+    }
+
+    /* the url has a scheme, which implies it also has a hostname */
+    ptr++;
+    while(*ptr == '/')
+        ptr++;
+    *host = ptr;
+    /* skip the rest of the hostname. The path starts at the next /. */
+    while(*ptr != '/' && *ptr != '\0')
+        ptr++;
+    *path = ptr;
+}
+
+
+/**
+ * We have to build our own HTTP requests because:
+ *   - libpurple only supports GET
+ *   - libpurple's purple_url_parse assumes that the path + querystring is
+ *     shorter than 256 bytes.
+ */
 static GString *_build_request(PurpleAccount *acct, const gchar *url,
         const gchar *method, const gchar *body)
 {
-    /* this is lifted from libpurple/util.c:url_fetch_send_cb. I wish libpurple
-     * exposed it so that we didn't need to reinvent this wheel.
-     */
     PurpleProxyInfo *gpi = purple_proxy_get_setup(acct);
     GString *request_str = g_string_new(NULL);
-    gchar *url_host, *url_path, *url_user, *url_password;
-    int url_port;
+    const gchar *url_host, *url_path;
 
-    purple_url_parse(url, &url_host, &url_port, &url_path, &url_user,
-            &url_password);
+    _parse_url(url, &url_host, &url_path);
 
-    g_string_append_printf(request_str, "%s %s HTTP/1.1\r\n", method, url);
+    /* we only support absolute URLs (with schemes) */
+    g_assert(url_host != NULL); /* TODO: enforce this elsewhere */
+
+
+    /* TODO: if we are connecting via a proxy, we should put the whole url
+     * in the request line. (But synapse chokes if we do that on a direct
+     * connection.)
+     */
+    g_string_append_printf(request_str, "%s %s HTTP/1.1\r\n",
+            method, url_path);
     g_string_append(request_str, "Connection: close\r\n");
-    g_string_append_printf(request_str, "Host: %s\r\n", url_host);
+    g_string_append_printf(request_str, "Host: %.*s\r\n",
+            (int)(url_path-url_host), url_host);
     g_string_append_printf(request_str, "Content-Length: %zi\r\n",
-            strlen(body));
+            body == NULL ? 0 : strlen(body));
 
     _add_proxy_auth_headers(request_str, gpi);
     g_string_append(request_str, "\r\n");
-    g_string_append(request_str, body);
+    if(body != NULL)
+        g_string_append(request_str, body);
 
     return request_str;
 }
@@ -472,7 +520,8 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
 {
     GString *url;
     MatrixApiRequestData *fetch_data;
-    
+    GString *request;
+
     url = g_string_new("");
     g_string_append_printf(url,
             "%s/_matrix/client/v2_alpha/sync?access_token=%s&timeout=%i",
@@ -488,12 +537,15 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
     purple_debug_info("matrixprpl", "syncing %s since %s (full_state=%i)\n",
                 conn->pc->account->username, since, full_state);
 
+    request = _build_request(conn->pc->account, url->str, "GET", NULL);
+
     /* XXX: stream the response, so that we don't need to allocate so much
      * memory? But it's JSON
      */
-    fetch_data = matrix_api_start(url->str, NULL, conn, callback,
+    fetch_data = matrix_api_start(url->str, request->str, conn, callback,
             error_callback, bad_response_callback, user_data, 10*1024*1024);
     g_string_free(url, TRUE);
+    g_string_free(request, TRUE);
     
     return fetch_data;
 }
@@ -549,7 +601,7 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
     return fetch_data;
 }
 
-
+#if 0
 MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
         const gchar *room_id,
         MatrixApiCallback callback,
@@ -572,3 +624,4 @@ MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
 
     return fetch_data;
 }
+#endif
