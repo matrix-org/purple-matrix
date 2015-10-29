@@ -126,7 +126,6 @@ MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
         gpointer user_data);
 
 
-
 /**
  * call the /sync API
  *
@@ -178,6 +177,8 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+
+#if 0
 /**
  * Get the current state of a room
  *
@@ -190,5 +191,6 @@ MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
         const gchar *room_id,
         MatrixApiCallback callback,
         gpointer user_data);
+#endif
 
 #endif

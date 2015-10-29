@@ -343,18 +343,19 @@ void matrix_api_cancel(MatrixApiRequestData *data)
     g_free(data);
 }
 
-
+/*
+ * Add proxy authentication headers to a request
+ */
 static void _add_proxy_auth_headers(GString *request_str, PurpleProxyInfo *gpi)
 {
-    PurpleProxyType type = purple_proxy_info_get_type(gpi);
+    const char *username, *password;
     char *t1, *t2, *ntlm_type1;
     char hostname[256];
     int ret;
 
-    if (purple_proxy_info_get_username(gpi) == NULL)
-        return;
-
-    if(type != PURPLE_PROXY_USE_ENVVAR && type != PURPLE_PROXY_HTTP)
+    username = purple_proxy_info_get_username(gpi);
+    password = purple_proxy_info_get_password(gpi);
+    if (username == NULL)
         return;
 
     ret = gethostname(hostname, sizeof(hostname));
@@ -364,10 +365,7 @@ static void _add_proxy_auth_headers(GString *request_str, PurpleProxyInfo *gpi)
           strcpy(hostname, "localhost");
     }
 
-    t1 = g_strdup_printf("%s:%s",
-                purple_proxy_info_get_username(gpi),
-                purple_proxy_info_get_password(gpi) ?
-                        purple_proxy_info_get_password(gpi) : "");
+    t1 = g_strdup_printf("%s:%s", username, password ? password : "");
     t2 = purple_base64_encode((const guchar *)t1, strlen(t1));
     g_free(t1);
 
@@ -430,6 +428,13 @@ static GString *_build_request(PurpleAccount *acct, const gchar *url,
     PurpleProxyInfo *gpi = purple_proxy_get_setup(acct);
     GString *request_str = g_string_new(NULL);
     const gchar *url_host, *url_path;
+    gboolean using_http_proxy = FALSE;
+
+    if(gpi != NULL) {
+        PurpleProxyType type = purple_proxy_info_get_type(gpi);
+        using_http_proxy = (type == PURPLE_PROXY_USE_ENVVAR
+                || type == PURPLE_PROXY_HTTP);
+    }
 
     _parse_url(url, &url_host, &url_path);
 
@@ -437,19 +442,22 @@ static GString *_build_request(PurpleAccount *acct, const gchar *url,
     g_assert(url_host != NULL); /* TODO: enforce this elsewhere */
 
 
-    /* TODO: if we are connecting via a proxy, we should put the whole url
+    /* If we are connecting via a proxy, we should put the whole url
      * in the request line. (But synapse chokes if we do that on a direct
      * connection.)
      */
     g_string_append_printf(request_str, "%s %s HTTP/1.1\r\n",
-            method, url_path);
-    g_string_append(request_str, "Connection: close\r\n");
+            method, using_http_proxy ? url : url_path);
     g_string_append_printf(request_str, "Host: %.*s\r\n",
             (int)(url_path-url_host), url_host);
+
+    g_string_append(request_str, "Connection: close\r\n");
     g_string_append_printf(request_str, "Content-Length: %zi\r\n",
             body == NULL ? 0 : strlen(body));
 
-    _add_proxy_auth_headers(request_str, gpi);
+    if(using_http_proxy)
+        _add_proxy_auth_headers(request_str, gpi);
+
     g_string_append(request_str, "\r\n");
     if(body != NULL)
         g_string_append(request_str, body);
@@ -602,6 +610,7 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
 }
 
 #if 0
+/* if we bring this back, it needs to build its own connection */
 MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
         const gchar *room_id,
         MatrixApiCallback callback,
