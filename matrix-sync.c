@@ -35,7 +35,6 @@ typedef struct _RoomEventParserData {
     PurpleConversation *conv;
     JsonObject *event_map;
     gboolean state_events;
-    gboolean initial_sync;
 } RoomEventParserData;
 
 
@@ -70,8 +69,7 @@ static void _parse_room_event(JsonArray *event_array, guint event_idx,
     }
 
     if(data->state_events)
-        matrix_room_handle_state_event(conv, event_id, json_event_obj,
-                data->initial_sync);
+        matrix_room_handle_state_event(conv, event_id, json_event_obj);
     else
         matrix_room_handle_timeline_event(conv, event_id, json_event_obj);
 }
@@ -80,9 +78,9 @@ static void _parse_room_event(JsonArray *event_array, guint event_idx,
  * parse the list of events in a sync response
  */
 static void _parse_room_event_array(PurpleConversation *conv, JsonArray *events,
-        JsonObject* event_map, gboolean state_events, gboolean initial_sync)
+        JsonObject* event_map, gboolean state_events)
 {
-    RoomEventParserData data = {conv, event_map, state_events, initial_sync};
+    RoomEventParserData data = {conv, event_map, state_events};
     json_array_foreach_element(events, _parse_room_event, &data);
 }
 
@@ -150,11 +148,9 @@ static void matrix_sync_room(const gchar *room_id,
     state_object = matrix_json_object_get_object_member(room_data, "state");
     state_array = matrix_json_object_get_array_member(state_object, "events");
     if(state_array != NULL)
-        _parse_room_event_array(conv, state_array, event_map, TRUE,
-                initial_sync);
-    if(initial_sync)
-        matrix_room_handle_initial_state(conv);
+        _parse_room_event_array(conv, state_array, event_map, TRUE);
 
+    matrix_room_complete_state_update(conv, !initial_sync);
 
     /* parse the timeline events */
     timeline_object = matrix_json_object_get_object_member(
@@ -162,8 +158,7 @@ static void matrix_sync_room(const gchar *room_id,
     timeline_array = matrix_json_object_get_array_member(
                 timeline_object, "events");
     if(timeline_array != NULL)
-        _parse_room_event_array(conv, timeline_array, event_map, FALSE,
-                initial_sync);
+        _parse_room_event_array(conv, timeline_array, event_map, FALSE);
 }
 
 

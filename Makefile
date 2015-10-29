@@ -19,6 +19,7 @@ CPPFLAGS+=-MMD
 
 OBJECTS=libmatrix.o matrix-api.o matrix-connection.o matrix-json.o \
     matrix-room.o \
+    matrix-roommembers.o \
     matrix-sync.o
 TARGET=libmatrix.so
 

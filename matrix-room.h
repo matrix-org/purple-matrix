@@ -36,10 +36,11 @@ struct _PurpleConversation;
 struct _PurpleConnection;
 
 /**
- * @param conn   connection data for the account
  * @param conv   conversation info
  */
-void matrix_room_handle_initial_state(struct _PurpleConversation *conv);
+void matrix_room_complete_state_update(struct _PurpleConversation *conv,
+        gboolean announce_arrivals);
+
 
 /**
  * Create a new conversation for the given room
@@ -52,6 +53,18 @@ struct _PurpleConversation *matrix_room_create_conversation(
  * free the memory structures
  */
 void matrix_room_leave_chat(struct _PurpleConversation *conv);
+
+
+/**
+ * Update the state table on a room, based on a received state event
+ *
+ * @param conv        info on the room
+ * @param event_id    id of the event
+ * @param json_event_obj  the event object.
+ */
+
+void matrix_room_handle_state_event(struct _PurpleConversation *conv,
+        const gchar *event_id, JsonObject *json_event_obj);
 
 /**
  * handle a single received timeline event for a room (such as a message)
@@ -68,23 +81,5 @@ void matrix_room_handle_timeline_event(struct _PurpleConversation *conv,
  */
 void matrix_room_send_message(struct _PurpleConversation *conv,
         const gchar *message);
-
-/*************************************************************************
- *
- * Room state handling
- */
-
-/**
- * Update the state table on a room, based on a received state event
- *
- * @param conv        info on the room
- * @param event_id    id of the event
- * @param json_event_obj  the event object.
- */
-
-void matrix_room_handle_state_event(struct _PurpleConversation *conv,
-        const gchar *event_id, JsonObject *json_event_obj,
-        gboolean suppress_state_update_notifications);
-
 
 #endif
