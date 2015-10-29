@@ -7,14 +7,13 @@ libpurple-based clients (such as [Pidgin](http://www.pidgin.im)).
 
 # Status
 
-This project is somewhat pre-alpha, and only basic functionality has been
+This project is somewhat alpha, and only basic functionality has been
 implemented. In particular, sending and receiving messages is supported, but
 only for rooms you have already joined (using a different client).
 
 The following are not yet supported (or correctly implemented):
  * Joining and leaving rooms
  * Room invites
- * Indication of the members in a room
  * Presence indication
  * Typing indication
  * Videos/images in messages
