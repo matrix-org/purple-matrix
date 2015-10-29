@@ -839,41 +839,19 @@ void matrix_room_leave_chat(PurpleConversation *conv)
 
 
 /**
- * Ensure the room is up to date in the buddy list (ie, it is present,
- * and the alias is correct)
+ * Update the name of the room in the buddy list (which in turn will update it
+ * in the chat window)
  *
  * @param conv: conversation info
  */
-static void _update_buddy_list(PurpleConversation *conv)
+static void _set_room_alias(PurpleConversation *conv)
 {
-    const gchar *room_id;
     gchar *room_name;
-    PurpleChat *chat;
     MatrixConnectionData *conn = _get_connection_data_from_conversation(conv);
+    PurpleChat *chat = purple_blist_find_chat(conv->account, conv->name);
 
-    room_id = conv->name;
-
-    chat = purple_blist_find_chat(conv->account, room_id);
-    if (!chat)
-    {
-        GHashTable *comp;
-        PurpleGroup *group;
-
-        group = purple_find_group("Matrix");
-        if (!group)
-        {
-            group = purple_group_new("Matrix");
-            purple_blist_add_group(group, NULL);
-        }
-        comp = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
-        g_hash_table_insert(comp, PRPL_CHAT_INFO_ROOM_ID, g_strdup(room_id));
-
-        /* we set the alias to the room id initially, then change it to
-         * something more user-friendly below.
-         */
-        chat = purple_chat_new(conv->account, room_id, comp);
-        purple_blist_add_chat(chat, group, NULL);
-    }
+    /* we know there should be a buddy list entry for this room */
+    g_assert(chat != NULL);
 
     room_name = matrix_room_get_name(conn, conv);
     purple_blist_alias_chat(chat, room_name);
@@ -884,7 +862,7 @@ static void _update_buddy_list(PurpleConversation *conv)
 void matrix_room_handle_initial_state(PurpleConversation *conv)
 {
     _init_user_list(conv);
-    _update_buddy_list(conv);
+    _set_room_alias(conv);
 }
 
 

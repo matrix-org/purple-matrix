@@ -87,6 +87,40 @@ static void _parse_room_event_array(PurpleConversation *conv, JsonArray *events,
 }
 
 
+static PurpleChat *_ensure_blist_entry(PurpleAccount *acct,
+        const gchar *room_id)
+{
+    GHashTable *comp;
+    PurpleGroup *group;
+    PurpleChat *chat = purple_blist_find_chat(acct, room_id);
+
+    if (chat)
+        return chat;
+
+    group = purple_find_group("Matrix");
+    if (!group) {
+        group = purple_group_new("Matrix");
+        purple_blist_add_group(group, NULL);
+    }
+
+    comp = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
+    g_hash_table_insert(comp, PRPL_CHAT_INFO_ROOM_ID, g_strdup(room_id));
+
+    /* we set the alias to the room id initially, then change it to
+     * something more user-friendly later.
+     */
+    chat = purple_chat_new(acct, room_id, comp);
+
+    /* encourage matrix chats to be persistent by default. This is clearly a
+     * hack :/ */
+    purple_blist_node_set_bool(&chat->node, "gtk-persistent", TRUE);
+
+    purple_blist_add_chat(chat, group, NULL);
+
+    return chat;
+}
+
+
 /**
  * handle a room within the sync response
  */
@@ -97,6 +131,10 @@ static void matrix_sync_room(const gchar *room_id,
     JsonArray *state_array, *timeline_array;
     PurpleConversation *conv;
     gboolean initial_sync = FALSE;
+
+    /* ensure we have an entry in the buddy list for this room.
+     * TODO: We should only do this if the user is actually *in* the room. */
+    _ensure_blist_entry(pc->account, room_id);
 
     conv = purple_find_conversation_with_account(
             PURPLE_CONV_TYPE_CHAT, room_id, pc->account);
