@@ -200,9 +200,14 @@ void matrix_connection_start_login(PurpleConnection *pc)
 {
     PurpleAccount *acct = pc->account;
     MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+    const gchar *homeserver = purple_account_get_string(pc->account,
+            PRPL_ACCOUNT_OPT_HOME_SERVER, DEFAULT_HOME_SERVER);
 
-    conn->homeserver = g_strdup(purple_account_get_string(pc->account,
-            PRPL_ACCOUNT_OPT_HOME_SERVER, DEFAULT_HOME_SERVER));
+    if(!g_str_has_suffix(homeserver, "/")) {
+        conn->homeserver = g_strconcat(homeserver, "/", NULL);
+    } else {
+        conn->homeserver = g_strdup(homeserver);
+    }
 
     purple_connection_set_state(pc, PURPLE_CONNECTING);
     purple_connection_update_progress(pc, _("Logging in"), 0, 3);

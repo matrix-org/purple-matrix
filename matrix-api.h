@@ -4,12 +4,17 @@
  * The intention is that this module provides an interface to the matrix API
  * without anything purple-specific.
  *
- * Each API method takes a 'MatrixConnectionData *'; this is used to determine the
- * URL of the homeserver, and the access_token which is used for authorisation.
+ * Each API method takes a 'MatrixConnectionData *'; this is used to determine
+ * the URL of the homeserver, and the access_token which is used for
+ * authorisation.
  *
- * The methods are asyncronous, and take a callback to be called when the method
- * completes.
+ * The methods are asynchronous, and take a callback to be called when the
+ * request completes.
  *
+ * The methods may return NULL in the case of configuration errors, in which
+ * case the 'error_callback' will have been called *before* the method returns
+ * - so you should be careful not to access data structures which that callback
+ * frees.
  *
  *
  * This program is free software; you can redistribute it and/or modify
