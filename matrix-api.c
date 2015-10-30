@@ -206,7 +206,7 @@ static int _handle_body(http_parser *http_parser, const char *at,
         size_t length)
 {
     MatrixApiResponseParserData *response_data = http_parser->data;
-    GError *err;
+    GError *err = NULL;
 
     if(purple_debug_is_verbose())
         purple_debug_info("matrixprpl", "Handling API response body %.*s\n",
