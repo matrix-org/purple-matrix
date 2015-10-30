@@ -136,7 +136,8 @@ static void matrixprpl_join_chat(PurpleConnection *gc, GHashTable *components)
         /* already in chat */
         return;
     }
-    purple_debug_info("matrixprpl", "Request to join chat room %s\n", room);
+
+    matrix_connection_join_room(gc, room, components);
 }
 
 

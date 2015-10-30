@@ -224,3 +224,71 @@ void matrix_connection_start_login(PurpleConnection *pc)
             purple_account_get_password(acct), _login_completed, conn);
 }
 
+
+static void _join_completed(MatrixConnectionData *conn,
+        gpointer user_data,
+        JsonNode *json_root)
+{
+    GHashTable *components = user_data;
+    JsonObject *root_obj;
+    const gchar *room_id;
+
+    root_obj = matrix_json_node_get_object(json_root);
+    room_id = matrix_json_object_get_string_member(root_obj, "room_id");
+    purple_debug_info("matrixprpl", "join %s completed", room_id);
+
+    g_hash_table_destroy(components);
+}
+
+
+static void _join_error(MatrixConnectionData *conn,
+        gpointer user_data, const gchar *error_message)
+{
+    GHashTable *components = user_data;
+    g_hash_table_destroy(components);
+    matrix_api_error(conn, user_data, error_message);
+}
+
+
+static void _join_failed(MatrixConnectionData *conn,
+        gpointer user_data, int http_response_code,
+        struct _JsonNode *json_root)
+{
+    GHashTable *components = user_data;
+    JsonObject *json_obj;
+    const gchar *error = NULL;
+    const gchar *title = "Error joining chat";
+
+    if (json_root != NULL) {
+        json_obj = matrix_json_node_get_object(json_root);
+        error = matrix_json_object_get_string_member(json_obj, "error");
+    }
+
+    purple_notify_error(conn->pc, title, title, error);
+    purple_serv_got_join_chat_failed(conn->pc, components);
+    g_hash_table_destroy(components);
+}
+
+
+
+void matrix_connection_join_room(struct _PurpleConnection *pc,
+        const gchar *room, GHashTable *components)
+{
+    GHashTable *copy;
+    GHashTableIter iter;
+    gpointer key, value;
+
+    MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+
+    /* we have to copy the components table, so that we can pass it back
+     * later on :/
+     */
+    copy = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    g_hash_table_iter_init (&iter, components);
+    while (g_hash_table_iter_next (&iter, &key, &value)) {
+        g_hash_table_insert(copy, g_strdup(key), g_strdup(value));
+    }
+
+    matrix_api_join_room(conn, room, _join_completed, _join_error, _join_failed,
+            copy);
+}

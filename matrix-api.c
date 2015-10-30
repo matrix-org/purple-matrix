@@ -603,6 +603,7 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
     return fetch_data;
 }
 
+
 MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
         const gchar *room_id, const gchar *event_type, const gchar *txn_id,
         JsonObject *content, MatrixApiCallback callback,
@@ -650,6 +651,33 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
 }
 
 
+MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
+        const gchar *room,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "_matrix/client/api/v1/rooms/");
+    g_string_append(url, purple_url_encode(room));
+    g_string_append(url, "/join?access_token=");
+    g_string_append(url, purple_url_encode(conn->access_token));
+
+    purple_debug_info("matrixprpl", "joining %s\n", room);
+
+    fetch_data = matrix_api_start(url->str, "POST", "{}", conn, callback,
+            error_callback, bad_response_callback,
+            user_data, 0);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
+}
+
+
 MatrixApiRequestData *matrix_api_leave_room(MatrixConnectionData *conn,
         const gchar *room_id,
         MatrixApiCallback callback,
@@ -675,6 +703,7 @@ MatrixApiRequestData *matrix_api_leave_room(MatrixConnectionData *conn,
 
     return fetch_data;
 }
+
 
 #if 0
 MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
