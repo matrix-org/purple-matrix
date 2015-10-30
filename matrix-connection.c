@@ -109,6 +109,14 @@ static void _sync_complete(MatrixConnectionData *ma, gpointer user_data,
     PurpleConnection *pc = ma->pc;
     const gchar *next_batch;
 
+    ma->active_sync = NULL;
+
+    if(body == NULL) {
+        purple_connection_error_reason(pc, PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                "Couldn't parse sync response");
+        return;
+    }
+
     purple_connection_update_progress(pc, _("Connected"), 2, 3);
     purple_connection_set_state(pc, PURPLE_CONNECTED);
 
@@ -116,8 +124,8 @@ static void _sync_complete(MatrixConnectionData *ma, gpointer user_data,
 
     /* Start the next sync */
     if(next_batch == NULL) {
-        purple_connection_error_reason(pc,
-            PURPLE_CONNECTION_ERROR_OTHER_ERROR, "No next_batch field");
+        purple_connection_error_reason(pc, PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                "No next_batch field");
         return;
     }
     purple_account_set_string(pc->account, PRPL_ACCOUNT_OPT_NEXT_BATCH,

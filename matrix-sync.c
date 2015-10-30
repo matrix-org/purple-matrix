@@ -177,6 +177,8 @@ void matrix_sync_parse(PurpleConnection *pc, JsonNode *body,
     rooms = matrix_json_object_get_object_member(rootObj, "rooms");
     joined_rooms = matrix_json_object_get_object_member(rooms, "joined");
 
+    *next_batch = matrix_json_object_get_string_member(rootObj, "next_batch");
+
     if(joined_rooms == NULL) {
         purple_debug_warning("matrixprpl", "didn't find joined rooms list\n");
         return;
@@ -187,10 +189,9 @@ void matrix_sync_parse(PurpleConnection *pc, JsonNode *body,
         const gchar *room_id = elem->data;
         JsonObject *room_data = matrix_json_object_get_object_member(
                 joined_rooms, room_id);
+        purple_debug_info("matrixprpl", "Syncing room %s", room_id);
         matrix_sync_room(room_id, room_data, pc);
     }
     g_list_free(room_ids);
-
-    *next_batch = matrix_json_object_get_string_member(rootObj, "next_batch");
 }
 
