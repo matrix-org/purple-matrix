@@ -472,7 +472,7 @@ static void _enqueue_event(PurpleConversation *conv, const gchar *event_type,
 {
     MatrixRoomEvent *event;
     GList *event_queue;
-    PurpleUtilFetchUrlData *active_send;
+    MatrixApiRequestData *active_send;
 
     event = _alloc_room_event(event_type, event_content);
     event->txn_id = g_strdup_printf("%"G_GINT64_FORMAT"%"G_GUINT32_FORMAT,
@@ -493,6 +493,25 @@ static void _enqueue_event(PurpleConversation *conv, const gchar *event_type,
     } else {
         _send_queued_event(conv);
     }
+}
+
+
+/**
+ * If there is an event send in progress, cancel it
+ */
+static void _cancel_event_send(PurpleConversation *conv)
+{
+    MatrixApiRequestData *active_send = purple_conversation_get_data(conv,
+            PURPLE_CONV_DATA_ACTIVE_SEND);
+
+    if(active_send == NULL)
+        return;
+
+    purple_debug_info("matrixprpl", "Cancelling event send");
+    matrix_api_cancel(active_send);
+
+    g_assert(purple_conversation_get_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND)
+            == NULL);
 }
 
 /*****************************************************************************/
@@ -601,15 +620,27 @@ PurpleConversation *matrix_room_create_conversation(
  */
 void matrix_room_leave_chat(PurpleConversation *conv)
 {
+    MatrixConnectionData *conn;
     MatrixRoomStateEventTable *state_table;
     GList *event_queue;
     MatrixRoomMemberTable *member_table;
 
-    /* TODO: actually tell the server that we are leaving the chat, and only
-     * destroy the memory structures once we get a response from that.
+    conn = _get_connection_data_from_conversation(conv);
+
+    _cancel_event_send(conv);
+    matrix_api_leave_room(conn, conv->name, NULL, NULL, NULL, NULL);
+
+    /* At this point, we have no confirmation that the 'leave' request will
+     * be successful (nor that it has even started), so it's questionable
+     * whether we can/should actually free all of the room state.
      *
-     * For now, we just free the memory structurs.
+     * On the other hand, we don't have any mechanism for telling purple that
+     * we haven't really left the room, and if the leave request does fail,
+     * we'll set the error flag on the connection, which will eventually
+     * result in pidgin flagging the connection as failed; things will
+     * hopefully then get resynced when the user reconnects.
      */
+
     state_table = matrix_room_get_state_table(conv);
     g_hash_table_destroy(state_table);
     purple_conversation_set_data(conv, PURPLE_CONV_DATA_STATE, NULL);
@@ -633,9 +664,6 @@ static void _update_user_list(PurpleConversation *conv,
     MatrixRoomMemberTable *table = matrix_room_get_member_table(conv);
     GList *names = NULL, *flags = NULL, *oldnames = NULL;
     gboolean updated = FALSE;
-
-    purple_debug_info("matrixprpl", "Updating members in %s\n",
-            conv->name);
 
     matrix_roommembers_get_new_members(table, &names, &flags);
     if(names) {

@@ -183,6 +183,15 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
         gpointer user_data);
 
 
+
+MatrixApiRequestData *matrix_api_leave_room(MatrixConnectionData *conn,
+        const gchar *room_id,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
+
 #if 0
 /**
  * Get the current state of a room

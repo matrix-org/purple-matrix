@@ -304,7 +304,7 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
                 response_code);
         (data->bad_response_callback)(data->conn, data->user_data,
                 response_code, root);
-    } else {
+    } else if (data->callback) {
         (data->callback)(data->conn, data->user_data, root);
     }
 
@@ -644,6 +644,33 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
             error_callback, bad_response_callback,
             user_data, 0);
     g_free(json);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
+}
+
+
+MatrixApiRequestData *matrix_api_leave_room(MatrixConnectionData *conn,
+        const gchar *room_id,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "_matrix/client/api/v1/rooms/");
+    g_string_append(url, purple_url_encode(room_id));
+    g_string_append(url, "/leave?access_token=");
+    g_string_append(url, purple_url_encode(conn->access_token));
+
+    purple_debug_info("matrixprpl", "leaving %s\n", room_id);
+
+    fetch_data = matrix_api_start(url->str, "POST", "{}", conn, callback,
+            error_callback, bad_response_callback,
+            user_data, 0);
     g_string_free(url, TRUE);
 
     return fetch_data;
