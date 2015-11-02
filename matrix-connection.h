@@ -70,5 +70,10 @@ void matrix_connection_join_room(struct _PurpleConnection *pc,
         const gchar *room, GHashTable *components);
 
 
+/**
+ * start the process for rejecting an invite to a chat
+ */
+void matrix_connection_reject_invite(struct _PurpleConnection *pc,
+        const gchar *room_id);
 
 #endif

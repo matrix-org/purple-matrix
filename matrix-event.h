@@ -31,6 +31,10 @@ typedef struct _MatrixRoomEvent {
      * events.
      */
     gchar *txn_id;
+
+    /* the sender, for incoming events. NULL for outgoing ones. */
+    gchar *sender;
+
     gchar *event_type;
     struct _JsonObject *content;
 } MatrixRoomEvent;

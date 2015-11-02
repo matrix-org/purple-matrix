@@ -153,7 +153,7 @@ void matrix_room_handle_state_event(struct _PurpleConversation *conv,
         const gchar *event_id, JsonObject *json_event_obj)
 {
     MatrixRoomStateEventTable *state_table = matrix_room_get_state_table(conv);
-    matrix_statetable_update(state_table, event_id, json_event_obj,
+    matrix_statetable_update(state_table, json_event_obj,
             _on_state_update, conv);
 }
 
@@ -512,7 +512,7 @@ void matrix_room_leave_chat(PurpleConversation *conv)
      */
 
     state_table = matrix_room_get_state_table(conv);
-    g_hash_table_destroy(state_table);
+    matrix_statetable_destroy(state_table);
     purple_conversation_set_data(conv, PURPLE_CONV_DATA_STATE, NULL);
 
     member_table = matrix_room_get_member_table(conv);

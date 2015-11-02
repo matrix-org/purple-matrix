@@ -121,8 +121,10 @@ static char *matrixprpl_get_chat_name(GHashTable *components)
     return g_strdup(room);
 }
 
-/* Handle a double-click on a chat in the buddy list: it is expected that we
- * join the chat.
+
+/**
+ * Handle a double-click on a chat in the buddy list, or acceptance of a chat
+ * invite: it is expected that we join the chat.
  */
 static void matrixprpl_join_chat(PurpleConnection *gc, GHashTable *components)
 {
@@ -139,6 +141,19 @@ static void matrixprpl_join_chat(PurpleConnection *gc, GHashTable *components)
 
     matrix_connection_join_room(gc, room, components);
 }
+
+
+/**
+ * Handle refusing a chat invite.
+ */
+static void matrixprpl_reject_chat(PurpleConnection *gc, GHashTable *components)
+{
+    const char *room_id = g_hash_table_lookup(components,
+            PRPL_CHAT_INFO_ROOM_ID);
+
+    matrix_connection_reject_invite(gc, room_id);
+}
+
 
 
 /**
@@ -627,30 +642,6 @@ static void matrixprpl_rem_deny(PurpleConnection *gc, const char *name) {
 
 static void matrixprpl_set_permit_deny(PurpleConnection *gc) {
 }
-
-
-static void matrixprpl_reject_chat(PurpleConnection *gc, GHashTable *components) {
-    const char *invited_by = g_hash_table_lookup(components, "invited_by");
-    const char *room = g_hash_table_lookup(components, "room");
-    const char *username = gc->account->username;
-    PurpleConnection *invited_by_gc = get_matrixprpl_gc(invited_by);
-    char *message = g_strdup_printf(
-        "%s %s %s.",
-        username,
-        _("has rejected your invitation to join the chat room"),
-        room);
-
-    purple_debug_info("matrixprpl",
-                      "%s has rejected %s's invitation to join chat room %s\n",
-                      username, invited_by, room);
-
-    purple_notify_info(invited_by_gc,
-                       _("Chat invitation rejected"),
-                       _("Chat invitation rejected"),
-                       message);
-    g_free(message);
-}
-
 
 static void matrixprpl_chat_invite(PurpleConnection *gc, int id,
                                    const char *message, const char *who) {

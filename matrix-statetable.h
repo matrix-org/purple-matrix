@@ -52,6 +52,12 @@ MatrixRoomStateEventTable *matrix_statetable_new();
 
 
 /**
+ * free a state table
+ */
+void matrix_statetable_destroy(MatrixRoomStateEventTable *table);
+
+
+/**
  * look up a particular bit of state
  *
  * @returns null if this key ies not known
@@ -65,7 +71,7 @@ struct _MatrixRoomEvent *matrix_statetable_get_event(
  * Update a state table with a new state event
  */
 void matrix_statetable_update(MatrixRoomStateEventTable *state_table,
-        const gchar *event_id, struct _JsonObject *json_event_obj,
+        struct _JsonObject *json_event_obj,
         MatrixStateUpdateCallback callback, gpointer user_data);
 
 

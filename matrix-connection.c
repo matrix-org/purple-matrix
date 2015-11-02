@@ -292,3 +292,12 @@ void matrix_connection_join_room(struct _PurpleConnection *pc,
     matrix_api_join_room(conn, room, _join_completed, _join_error, _join_failed,
             copy);
 }
+
+
+void matrix_connection_reject_invite(struct _PurpleConnection *pc,
+        const gchar *room_id)
+{
+    MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+
+    matrix_api_leave_room(conn, room_id, NULL, NULL, NULL, NULL);
+}

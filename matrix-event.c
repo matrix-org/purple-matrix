@@ -48,6 +48,7 @@ void matrix_event_free(MatrixRoomEvent *event)
     if(event->content)
         json_object_unref(event->content);
     g_free(event->txn_id);
+    g_free(event->sender);
     g_free(event->event_type);
     g_free(event);
 }

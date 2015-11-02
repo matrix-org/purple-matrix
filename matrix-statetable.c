@@ -37,6 +37,13 @@ MatrixRoomStateEventTable *matrix_statetable_new()
             (GDestroyNotify) g_hash_table_destroy);
 }
 
+
+void matrix_statetable_destroy(MatrixRoomStateEventTable *table)
+{
+    g_hash_table_destroy(table);
+}
+
+
 /**
  * look up a particular bit of state
  *
@@ -60,10 +67,10 @@ MatrixRoomEvent *matrix_statetable_get_event(
  * Update the state table on a room
  */
 void matrix_statetable_update(MatrixRoomStateEventTable *state_table,
-        const gchar *event_id, JsonObject *json_event_obj,
+        JsonObject *json_event_obj,
         MatrixStateUpdateCallback callback, gpointer user_data)
 {
-    const gchar *event_type, *state_key;
+    const gchar *event_type, *state_key, *sender;
     JsonObject *json_content_obj;
     MatrixRoomEvent *event, *old_event;
     GHashTable *state_table_entry;
@@ -72,15 +79,19 @@ void matrix_statetable_update(MatrixRoomStateEventTable *state_table,
             json_event_obj, "type");
     state_key = matrix_json_object_get_string_member(
             json_event_obj, "state_key");
+    sender = matrix_json_object_get_string_member(
+            json_event_obj, "sender");
     json_content_obj = matrix_json_object_get_object_member(
             json_event_obj, "content");
 
-    if(event_type == NULL || state_key == NULL || json_content_obj == NULL) {
+    if(event_type == NULL || state_key == NULL || sender == NULL ||
+            json_content_obj == NULL) {
         purple_debug_warning("matrixprpl", "event missing fields");
         return;
     }
 
     event = matrix_event_new(event_type, json_content_obj);
+    event -> sender = g_strdup(sender);
 
     state_table_entry = g_hash_table_lookup(state_table, event_type);
     if(state_table_entry == NULL) {
