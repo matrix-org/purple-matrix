@@ -123,6 +123,17 @@ gchar *matrix_statetable_get_room_alias(MatrixRoomStateEventTable *state_table)
         }
     }
 
+    /* look for a canonical alias */
+    event = matrix_statetable_get_event(state_table, "m.room.canonical_alias",
+            "");
+    if(event != NULL) {
+        tmpname = matrix_json_object_get_string_member(
+                event->content, "alias");
+        if(tmpname != NULL) {
+            return g_strdup(tmpname);
+        }
+    }
+
     /* look for an alias */
     tmp = (GHashTable *) g_hash_table_lookup(state_table, "m.room.aliases");
     if(tmp != NULL) {
