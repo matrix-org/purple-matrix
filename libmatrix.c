@@ -199,6 +199,24 @@ static int matrixprpl_chat_send(PurpleConnection *gc, int id,
 }
 
 
+/**
+ * Get the user_id of a user, given their displayname in a room
+ *
+ * @returns a string, which will be freed by the caller
+ */
+static char *matrixprpl_get_cb_real_name(PurpleConnection *gc, int id,
+        const char *who)
+{
+    PurpleConversation *conv = purple_find_chat(gc, id);
+    gchar *res;
+    if(conv == NULL)
+        return NULL;
+    res = matrix_room_displayname_to_userid(conv, who);
+    purple_debug_info("matrixprpl", "%s's real id in %s is %s\n", who,
+            conv->name, res);
+    return res;
+}
+
 
 /******************************************************************************
  * The following comes from the 'nullprpl' dummy protocol. TODO: clear this out
@@ -993,7 +1011,7 @@ static PurplePluginProtocolInfo prpl_info =
     matrixprpl_normalize,                  /* normalize */
     matrixprpl_set_buddy_icon,             /* set_buddy_icon */
     matrixprpl_remove_group,               /* remove_group */
-    NULL,                                /* get_cb_real_name */
+    matrixprpl_get_cb_real_name,           /* get_cb_real_name */
     matrixprpl_set_chat_topic,             /* set_chat_topic */
     NULL,                                  /* find_blist_chat */
     matrixprpl_roomlist_get_list,          /* roomlist_get_list */

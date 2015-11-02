@@ -82,4 +82,14 @@ void matrix_room_handle_timeline_event(struct _PurpleConversation *conv,
 void matrix_room_send_message(struct _PurpleConversation *conv,
         const gchar *message);
 
+
+/**
+ * Get the userid of a member of a room, given their displayname
+ *
+ * @returns a string, which will be freed by the caller
+ */
+gchar *matrix_room_displayname_to_userid(struct _PurpleConversation *conv,
+        const gchar *who);
+
+
 #endif

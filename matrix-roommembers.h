@@ -107,4 +107,14 @@ void matrix_roommembers_get_renamed_members(MatrixRoomMemberTable *table,
 void matrix_roommembers_get_left_members(MatrixRoomMemberTable *table,
         GList **names);
 
+
+/**
+ * Get the userid of a member of a room, given their displayname
+ *
+ * @returns a string, which will be freed by the caller, or null if not known
+ */
+gchar *matrix_roommembers_displayname_to_userid(
+        MatrixRoomMemberTable *table, const gchar *who);
+
+
 #endif /* MATRIX_ROOMMEMBERS_H_ */

@@ -608,3 +608,12 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
     purple_conv_chat_write(chat, _get_my_display_name(conv),
             message, PURPLE_MESSAGE_SEND, g_get_real_time()/1000/1000);
 }
+
+
+gchar *matrix_room_displayname_to_userid(struct _PurpleConversation *conv,
+        const gchar *who)
+{
+    MatrixRoomMemberTable *member_table =
+            matrix_room_get_member_table(conv);
+    return matrix_roommembers_displayname_to_userid(member_table, who);
+}
