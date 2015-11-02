@@ -190,8 +190,17 @@ static void _login_completed(MatrixConnectionData *conn,
          * with this account, that is a pretty good indication that we have
          * previously done a full_state sync.
          */
-        if(_account_has_active_conversations(pc->account))
+        if(_account_has_active_conversations(pc->account)) {
             needs_full_state_sync = FALSE;
+        } else {
+            /* this appears to be the first time we have connected to this account
+             * on this invocation of pidgin.
+             */
+            gboolean replay = purple_account_get_bool(pc->account,
+                    PRPL_ACCOUNT_OPT_REPLAY_OLD_MESSAGES, TRUE);
+            if(replay)
+                next_batch = NULL;
+        }
     }
 
     if(needs_full_state_sync) {
@@ -200,6 +209,7 @@ static void _login_completed(MatrixConnectionData *conn,
         purple_connection_update_progress(pc, _("Connected"), 2, 3);
         purple_connection_set_state(pc, PURPLE_CONNECTED);
     }
+
     _start_next_sync(conn, next_batch, needs_full_state_sync);
 }
 

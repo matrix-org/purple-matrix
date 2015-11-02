@@ -1030,6 +1030,11 @@ static void matrixprpl_init(PurplePlugin *plugin)
             purple_account_option_string_new(
                     _("Home server URL"), PRPL_ACCOUNT_OPT_HOME_SERVER,
                     DEFAULT_HOME_SERVER));
+    protocol_options = g_list_append(protocol_options,
+            purple_account_option_bool_new(
+                    _("On reconnect, replay recent messages from joined rooms"),
+                    PRPL_ACCOUNT_OPT_REPLAY_OLD_MESSAGES, TRUE));
+
     prpl_info.protocol_options = protocol_options;
 
 
