@@ -12,8 +12,6 @@ implemented. In particular, sending and receiving messages is supported, but
 only for rooms you have already joined (using a different client).
 
 The following are not yet supported (or correctly implemented):
- * Joining and leaving rooms
- * Room invites
  * Presence indication
  * Typing indication
  * Videos/images in messages

@@ -131,15 +131,27 @@ static void matrixprpl_join_chat(PurpleConnection *gc, GHashTable *components)
     const char *room = g_hash_table_lookup(components, PRPL_CHAT_INFO_ROOM_ID);
     int chat_id = g_str_hash(room);
     PurpleConversation *conv;
+    PurpleConvChat *chat;
 
     conv = purple_find_chat(gc, chat_id);
 
-    if(conv) {
-        /* already in chat */
+    if(!conv) {
+        matrix_connection_join_room(gc, room, components);
         return;
     }
 
-    matrix_connection_join_room(gc, room, components);
+    /* already in chat. This happens when the account was disconnected,
+     * and has now been asked to reconnect.
+     *
+     * If we've got this far, chances are that we are correctly joined to
+     * the room.
+     */
+    chat = PURPLE_CONV_CHAT(conv);
+    chat->left = FALSE;
+
+    if (!g_slist_find(gc->buddy_chats, conv))
+            gc->buddy_chats = g_slist_append(gc->buddy_chats, conv);
+    purple_conversation_update(conv, PURPLE_CONV_UPDATE_CHATLEFT);
 }
 
 
