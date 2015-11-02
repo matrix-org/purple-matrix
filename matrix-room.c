@@ -580,6 +580,16 @@ void matrix_room_complete_state_update(PurpleConversation *conv,
 }
 
 
+static const gchar *_get_my_display_name(PurpleConversation *conv)
+{
+    MatrixConnectionData *conn = _get_connection_data_from_conversation(conv);
+    MatrixRoomMemberTable *member_table =
+            matrix_room_get_member_table(conv);
+
+    return matrix_roommembers_get_displayname_for_member(
+            member_table, conn->user_id);
+}
+
 /**
  * Send a message in a room
  */
@@ -595,6 +605,6 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
     _enqueue_event(conv, "m.room.message", content);
     json_object_unref(content);
 
-    purple_conv_chat_write(chat, purple_conv_chat_get_nick(chat),
+    purple_conv_chat_write(chat, _get_my_display_name(conv),
             message, PURPLE_MESSAGE_SEND, g_get_real_time()/1000/1000);
 }

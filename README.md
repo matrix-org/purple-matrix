@@ -11,7 +11,7 @@ This project is somewhat alpha, and only basic functionality has been
 implemented. In particular, sending and receiving messages is supported, but
 only for rooms you have already joined (using a different client).
 
-The following are not yet supported (or correctly implemented):
+The following are not yet supported:
  * Presence indication
  * Typing indication
  * Videos/images in messages

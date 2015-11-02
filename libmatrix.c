@@ -936,7 +936,7 @@ static gboolean matrixprpl_offline_message(const PurpleBuddy *buddy) {
 
 static PurplePluginProtocolInfo prpl_info =
 {
-    OPT_PROTO_CHAT_TOPIC,                /* options */
+    OPT_PROTO_UNIQUE_CHATNAME | OPT_PROTO_CHAT_TOPIC,    /* options */
     NULL,               /* user_splits, initialized in matrixprpl_init() */
     NULL,               /* protocol_options, initialized in matrixprpl_init() */
     {   /* icon_spec, a PurpleBuddyIconSpec */
