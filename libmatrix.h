@@ -114,7 +114,7 @@
  */
 #define PRPL_ACCOUNT_OPT_HOME_SERVER "home_server"
 #define PRPL_ACCOUNT_OPT_NEXT_BATCH "next_batch"
-#define PRPL_ACCOUNT_OPT_REPLAY_OLD_MESSAGES "replay_messages"
+#define PRPL_ACCOUNT_OPT_SKIP_OLD_MESSAGES "skip_old_messages"
 
 /* defaults for account options */
 #define DEFAULT_HOME_SERVER "https://matrix.org"

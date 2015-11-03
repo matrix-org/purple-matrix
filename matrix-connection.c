@@ -196,9 +196,9 @@ static void _login_completed(MatrixConnectionData *conn,
             /* this appears to be the first time we have connected to this account
              * on this invocation of pidgin.
              */
-            gboolean replay = purple_account_get_bool(pc->account,
-                    PRPL_ACCOUNT_OPT_REPLAY_OLD_MESSAGES, TRUE);
-            if(replay)
+            gboolean skip = purple_account_get_bool(pc->account,
+                    PRPL_ACCOUNT_OPT_SKIP_OLD_MESSAGES, FALSE);
+            if(!skip)
                 next_batch = NULL;
         }
     }
