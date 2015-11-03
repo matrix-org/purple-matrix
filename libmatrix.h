@@ -19,6 +19,77 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA
   */
 
+/* Some notes on libpurple's object model.
+ *
+ * +---------------+
+ * | PurpleAccount | <-.
+ * +---------------+   |
+ * | gc            | --+--.
+ * .               .   |  |
+ * +---------------+   |  |
+ *                     |  |
+ *        .------------'  |
+ *        |               V
+ *        |     +------------------+             +----------------------+
+ *        |     | PurpleConnection |<--.     ,-->| MatrixConnectionData |
+ *        |     +------------------+   |     |   +----------------------+
+ *        +-----| account          |   `-----+---| pc                   |
+ *        |     | protocol_data    |---------'   .                      .
+ *        |     .                  .             +----------------------+
+ *        |     +------------------+
+ *        |
+ *        |     +--------------------+            +--------------------+
+ *        |     | PurpleConversation |<--.   ,--->| PurpleConvChat     |
+ *        |     +--------------------+   |   |    +--------------------+
+ *        +-----| account            |   `---+----| conv               |
+ *        |     | name               |       |    .                    .
+ *        |     | title              |       |    +--------------------+
+ *        |     | u.chat             |-------'
+ *        |     | data               |
+ *        |     .                    .
+ *        |     +--------------------+
+ *        |
+ *        |     +--------------------+
+ *        |     | PurpleBlistNode    |
+ *        |     +--------------------+
+ *        |     .                    .
+ *        |     +--------------------+
+ *        |               ^
+ *        |               | (inherits)
+ *        |     +--------------------+
+ *        |     | PurpleChat         |
+ *        |     +--------------------+
+ *        '-----| account            |
+ *              | components         |
+ *              .                    .
+ *              +--------------------+
+ *
+ *
+ *
+ * There is one PurpleAccount for each account the user has configured.
+ *
+ * Each PurpleAccount has at most one active connections. When the user enables
+ * the account, a PurpleConnection is made, and we attach a MatrixConnectionData
+ * to it - this is managed in matrix-connection.c. If there is an error on the
+ * connection, or the user explicitly disables the account, the PurpleConnection
+ * is deleted, and the MatrixConnectionData along with it.
+ *
+ * A PurpleChat (and a PurpleBuddy, but we don't have much to do with them)
+ * represents an entry on the buddylist. It has a hashtable called 'components'
+ * which stores the necessary information about the chat - in our case this is
+ * just the room id.
+ *
+ * A PurpleConversation represents an active conversation, and has a chat window
+ * associated with it. Its 'name' is not visible to the user; instead it is
+ * a unique id for the conversation - in our case the room id. Libpurple has
+ * some magic which looks up the 'name' against the 'components' of PurpleChats
+ * in the buddy list, and if a match is found, will set the title automatically.
+ *
+ * The PurpleConversation also has a hashtable which is used to track a range of
+ * protocol-specific data: see PURPLE_CONV_DATA_* in matrix-room.c for details
+ * of this.
+ */
+
 #ifndef LIBMATRIX_H
 #define LIBMATRIX_H
 

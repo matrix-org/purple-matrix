@@ -12,6 +12,8 @@ implemented. In particular, sending and receiving messages is supported, but
 only for rooms you have already joined (using a different client).
 
 The following are not yet supported:
+ * Sending invitations
+ * Creating new rooms (and one-to-one chats)
  * Presence indication
  * Typing indication
  * Videos/images in messages
@@ -20,9 +22,6 @@ The following are not yet supported:
  * Room topics
  * Voice/video calling
 
-The plugin requires a homeserver running the v2_alpha API, which is not
-(currently) the case for the matrix.org homeserver. You will therefore need to
-run your own homeserver from the 'develop' branch of synapse.
 
 # Installation
 
@@ -47,9 +46,19 @@ You will then need to restart Pidgin, after which you should be able to add a
 
 # Usage
 
-* Open the 'Manage accounts' dialog (under the 'Accounts' menu) and click 'Add'.
+* Open the 'Manage accounts' dialog (under the 'Accounts' menu) and click 
+  'Add'.
 * If the plugin was loaded successfully, you will be able to select 'Matrix'
   from the 'Protocol' dropdown.
 * Enter your matrix ID on the homeserver (e.g. '@bob:matrix.org' or 'bob') as
   the 'username', and the password in the 'password' field.
 * On the 'Advanced' tab, enter the URL of your homeserver.
+
+
+The Advanced account option 'On reconnect, replay recent messages from joined
+rooms' is set by default. This means that pidgin will show the last few 
+messages for each room each time it starts.  If this option is unticked, only
+new messages will be received.  This option requires a homeserver running the 
+v2_alpha API, which is not (currently) the case for the matrix.org homeserver.
+You will therefore need to run your own homeserver from the 'develop' branch 
+of synapse.
