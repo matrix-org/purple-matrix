@@ -178,6 +178,7 @@ const gchar *matrix_roommembers_get_displayname_for_member(
     if (displayname != NULL)
         return displayname;
 
+    displayname = _calculate_displayname_for_member(member);
     member -> current_displayname = displayname;
     return displayname;
 }
@@ -193,7 +194,7 @@ void matrix_roommembers_get_new_members(MatrixRoomMemberTable *table,
 
         g_assert(member->current_displayname == NULL);
         displayname = _calculate_displayname_for_member(member);
-        member->current_displayname = displayname;
+
         *display_names = g_list_prepend(*display_names, displayname);
         *flags = g_list_prepend(*flags, GINT_TO_POINTER(0));
 
@@ -279,14 +280,17 @@ void matrix_roommembers_update_member(MatrixRoomMemberTable *table,
 
     if(new_membership_val == MATRIX_ROOM_MEMBERSHIP_JOIN) {
         if(old_membership_val != MATRIX_ROOM_MEMBERSHIP_JOIN) {
+            /* new user in this room */
             table->new_members = g_slist_append(
                     table->new_members, member);
         } else if(g_strcmp0(old_displayname, new_displayname) != 0) {
+            /* user has changed name */
             table->renamed_members = g_slist_append(
                     table->renamed_members, member);
         }
     } else {
         if(old_membership_val == MATRIX_ROOM_MEMBERSHIP_JOIN) {
+            /* user has left this room */
             table->left_members = g_slist_append(
                     table->left_members, member);
         }
@@ -298,7 +302,7 @@ void matrix_roommembers_update_member(MatrixRoomMemberTable *table,
  * Returns a list of user ids. Free the list, but not the string pointers.
  */
 GList *matrix_roommembers_get_active_members(
-        MatrixRoomMemberTable *member_table)
+        MatrixRoomMemberTable *member_table, gboolean include_invited)
 {
     GHashTableIter iter;
     gpointer key, value;
@@ -309,8 +313,11 @@ GList *matrix_roommembers_get_active_members(
         const gchar *user_id = key;
         MatrixRoomMember *member = value;
 
-        if(member->membership == MATRIX_ROOM_MEMBERSHIP_JOIN)
+        if(member->membership == MATRIX_ROOM_MEMBERSHIP_JOIN ||
+                (include_invited &&
+                        member->membership == MATRIX_ROOM_MEMBERSHIP_INVITE)) {
             members = g_list_prepend(members, (gpointer)user_id);
+        }
     }
     return members;
 }

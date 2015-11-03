@@ -70,7 +70,7 @@ const gchar *matrix_roommembers_get_displayname_for_member(
  * Returns a list of user ids. Free the list, but not the string pointers.
  */
 GList *matrix_roommembers_get_active_members(
-        MatrixRoomMemberTable *member_table);
+        MatrixRoomMemberTable *member_table, gboolean include_invited);
 
 
 /**

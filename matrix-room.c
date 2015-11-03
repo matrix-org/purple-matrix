@@ -172,7 +172,7 @@ static gchar *_get_room_name_from_members(MatrixConnectionData *conn,
     MatrixRoomMemberTable *member_table;
 
     member_table = matrix_room_get_member_table(conv);
-    members = matrix_roommembers_get_active_members(member_table);
+    members = matrix_roommembers_get_active_members(member_table, TRUE);
 
     /* remove ourselves from the list */
     tmp = g_list_find_custom(members, conn->user_id, (GCompareFunc)strcmp);
