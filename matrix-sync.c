@@ -117,6 +117,8 @@ static PurpleChat *_ensure_blist_entry(PurpleAccount *acct,
     purple_blist_node_set_bool(&chat->node, "gtk-persistent", TRUE);
 
     purple_blist_add_chat(chat, group, NULL);
+    purple_debug_info("matrixprpl", "added buddy list entry for room %s\n",
+            room_id);
 
     return chat;
 }
@@ -133,8 +135,7 @@ static void matrix_sync_room(const gchar *room_id,
     PurpleConversation *conv;
     gboolean initial_sync = FALSE;
 
-    /* ensure we have an entry in the buddy list for this room.
-     * TODO: We should only do this if the user is actually *in* the room. */
+    /* ensure we have an entry in the buddy list for this room. */
     _ensure_blist_entry(pc->account, room_id);
 
     conv = purple_find_conversation_with_account(

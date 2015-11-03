@@ -63,6 +63,10 @@ static MatrixConnectionData *_get_connection_data_from_conversation(
 /* MatrixRoomMemberTable * - see below */
 #define PURPLE_CONV_MEMBER_TABLE "member_table"
 
+/* PURPLE_CONV_FLAG_* */
+#define PURPLE_CONV_FLAGS "flags"
+#define PURPLE_CONV_FLAG_NEEDS_NAME_UPDATE 0x1
+
 
 /**
  * Get the member table for a room
@@ -84,6 +88,20 @@ static MatrixRoomStateEventTable *matrix_room_get_state_table(
 }
 
 
+static guint _get_flags(PurpleConversation *conv)
+{
+    return GPOINTER_TO_UINT(purple_conversation_get_data(conv,
+            PURPLE_CONV_FLAGS));
+}
+
+
+static void _set_flags(PurpleConversation *conv, guint flags)
+{
+    purple_conversation_set_data(conv, PURPLE_CONV_FLAGS,
+            GUINT_TO_POINTER(flags));
+}
+
+
 /******************************************************************************
  *
  * room state handling
@@ -91,8 +109,7 @@ static MatrixRoomStateEventTable *matrix_room_get_state_table(
 
 
 /**
- * Update the name of the room in the buddy list (which in turn will update it
- * in the chat window)
+ * Update the name of the room in the buddy list and the chat window
  *
  * @param conv: conversation info
  */
@@ -100,16 +117,37 @@ static void _update_room_alias(PurpleConversation *conv)
 {
     gchar *room_name;
     MatrixConnectionData *conn = _get_connection_data_from_conversation(conv);
-    PurpleChat *chat = purple_blist_find_chat(conv->account, conv->name);
-
-    /* we know there should be a buddy list entry for this room */
-    g_assert(chat != NULL);
+    PurpleChat *chat;
+    guint flags;
 
     room_name = _get_room_name(conn, conv);
+
+    /* update the buddy list entry */
+    chat = purple_blist_find_chat(conv->account, conv->name);
+    /* we know there should be a buddy list entry for this room */
+    g_assert(chat != NULL);
     purple_blist_alias_chat(chat, room_name);
+
+    /* explicitly update the conversation title. This will tend to happen
+     * anyway, but possibly not until the conversation tab is next activated.
+     */
+    if (strcmp(room_name, purple_conversation_get_title(conv)))
+        purple_conversation_set_title(conv, room_name);
+
     g_free(room_name);
+
+    flags = _get_flags(conv);
+    flags &= ~PURPLE_CONV_FLAG_NEEDS_NAME_UPDATE;
+    _set_flags(conv, flags);
 }
 
+
+static void _schedule_name_update(PurpleConversation *conv)
+{
+    guint flags = _get_flags(conv);
+    flags |= PURPLE_CONV_FLAG_NEEDS_NAME_UPDATE;
+    _set_flags(conv, flags);
+}
 
 /**
  * Called when there is a change to the member list. Tells the MemberTable
@@ -142,10 +180,16 @@ static void _on_state_update(const gchar *event_type,
 
     if(strcmp(event_type, "m.room.member") == 0) {
         _on_member_change(conv, state_key, new_state);
+        /* we schedule a room name update here regardless of whether we end up
+         * changing any members, because even changes to invited members can
+         * affect the room name.
+         */
+        _schedule_name_update(conv);
     }
     else if(strcmp(event_type, "m.room.alias") == 0 ||
+            strcmp(event_type, "m.room.canonical_alias") == 0 ||
             strcmp(event_type, "m.room.room_name") == 0) {
-        _update_room_alias(conv);
+        _schedule_name_update(conv);
     }
 }
 
@@ -157,6 +201,12 @@ void matrix_room_handle_state_event(struct _PurpleConversation *conv,
             _on_state_update, conv);
 }
 
+
+static gint _compare_member_user_id(const MatrixRoomMember *m,
+        const gchar *user_id)
+{
+    return g_strcmp0(matrix_roommember_get_user_id(m), user_id);
+}
 
 /**
  * figure out the best name for a room based on its members list
@@ -175,7 +225,8 @@ static gchar *_get_room_name_from_members(MatrixConnectionData *conn,
     members = matrix_roommembers_get_active_members(member_table, TRUE);
 
     /* remove ourselves from the list */
-    tmp = g_list_find_custom(members, conn->user_id, (GCompareFunc)strcmp);
+    tmp = g_list_find_custom(members, conn->user_id,
+            (GCompareFunc)_compare_member_user_id);
     if(tmp != NULL) {
         members = g_list_delete_link(members, tmp);
     }
@@ -185,16 +236,15 @@ static gchar *_get_room_name_from_members(MatrixConnectionData *conn,
         return NULL;
     }
 
-    member1 = matrix_roommembers_get_displayname_for_member(
-            member_table, members->data);
+    member1 = matrix_roommember_get_displayname(members->data);
 
     if(members->next == NULL) {
         /* one other person */
         res = g_strdup(member1);
     } else if(members->next->next == NULL) {
         /* two other people */
-        const gchar *member2 = matrix_roommembers_get_displayname_for_member(
-                member_table, members->next->data);
+        const gchar *member2 = matrix_roommember_get_displayname(
+                members->next->data);
         res = g_strdup_printf(_("%s and %s"), member1, member2);
     } else {
         int nmembers = g_list_length(members);
@@ -396,6 +446,7 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     const gchar *room_id, *msg_body;
     PurpleMessageFlags flags;
     const gchar *sender_display_name;
+    MatrixRoomMember *sender = NULL;
 
     room_id = conv->name;
 
@@ -440,14 +491,14 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
         return;
     }
 
-    if(sender_id == NULL) {
-        sender_display_name = "<unknown>";
+    if(sender_id != NULL) {
+        MatrixRoomMemberTable *table = matrix_room_get_member_table(conv);
+        sender = matrix_roommembers_lookup_member(table, sender_id);
+    }
+    if (sender != NULL) {
+        sender_display_name = matrix_roommember_get_displayname(sender);
     } else {
-        MatrixRoomMemberTable *member_table =
-                matrix_room_get_member_table(conv);
-
-        sender_display_name = matrix_roommembers_get_displayname_for_member(
-                member_table, sender_id);
+        sender_display_name = "<unknown>";
     }
 
     flags = PURPLE_MESSAGE_RECV;
@@ -527,56 +578,181 @@ void matrix_room_leave_chat(PurpleConversation *conv)
 }
 
 
-static void _update_user_list(PurpleConversation *conv,
+/* *****************************************************************************
+ *
+ * Tracking of member additions/removals.
+ *
+ * We don't tell libpurple about new arrivals immediately, because that is
+ * inefficient and takes ages on a big room like Matrix HQ. Instead, the
+ * MatrixRoomMemberTable builds up a list of changes, and we then go through
+ * those changes after processing all of the state changes in a /sync.
+ *
+ * This introduces a complexity in that we need to track what we've told purple
+ * the displayname of the user is (for instance, member1 leaves a channel,
+ * meaning that there is no longer a clash of displaynames, so member2
+ * can be renamed: we need to know what we previously told libpurple member2 was
+ * called). We do this by setting the member's opaque data to the name we gave
+ * to libpurple.
+ */
+
+
+static void _on_member_deleted(MatrixRoomMember *member)
+{
+    gchar *displayname = matrix_roommember_get_opaque_data(member);
+    g_free(displayname);
+    matrix_roommember_set_opaque_data(member, NULL, NULL);
+}
+
+
+/**
+ * Tell libpurple about newly-arrived members
+ */
+static void _handle_new_members(PurpleConversation *conv,
         gboolean announce_arrivals)
 {
     PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
     MatrixRoomMemberTable *table = matrix_room_get_member_table(conv);
-    GList *names = NULL, *flags = NULL, *oldnames = NULL;
-    gboolean updated = FALSE;
+    GList *names = NULL, *flags = NULL;
+    GSList *members;
 
-    matrix_roommembers_get_new_members(table, &names, &flags);
+    members = matrix_roommembers_get_new_members(table);
+    while(members != NULL) {
+        MatrixRoomMember *member = members->data;
+        const gchar *displayname;
+        GSList *tmp;
+
+        displayname = matrix_roommember_get_opaque_data(member);
+        g_assert(displayname == NULL);
+
+        displayname = matrix_roommember_get_displayname(member);
+        matrix_roommember_set_opaque_data(member, g_strdup(displayname),
+                _on_member_deleted);
+
+        names = g_list_prepend(names, (gpointer)displayname);
+        flags = g_list_prepend(flags, GINT_TO_POINTER(0));
+
+        tmp = members;
+        members = members->next;
+        g_slist_free_1(tmp);
+    }
+
     if(names) {
         purple_conv_chat_add_users(chat, names, NULL, flags, announce_arrivals);
         g_list_free(names);
         g_list_free(flags);
-        names = NULL;
-        flags = NULL;
-        updated = TRUE;
     }
-
-    matrix_roommembers_get_renamed_members(table, &oldnames, &names);
-    if(names) {
-        GList *name1 = names, *oldname1 = oldnames;
-        while(name1 && oldname1) {
-            purple_conv_chat_rename_user(chat, oldname1->data, name1->data);
-            name1 = g_list_next(name1);
-            oldname1 = g_list_next(oldname1);
-        }
-        g_list_free_full(oldnames, (GDestroyNotify)g_free);
-        g_list_free(names);
-        names = NULL;
-        oldnames = NULL;
-        updated = TRUE;
-    }
-
-    matrix_roommembers_get_left_members(table, &names);
-    if(names) {
-        purple_conv_chat_remove_users(chat, names, NULL);
-        g_list_free_full(names, (GDestroyNotify)g_free);
-        names = NULL;
-        updated = TRUE;
-    }
-
-    if(updated)
-        _update_room_alias(conv);
 }
 
+
+/**
+ * Tell libpurple about renamed members
+ */
+void _handle_renamed_members(PurpleConversation *conv)
+{
+    PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
+    MatrixRoomMemberTable *table = matrix_room_get_member_table(conv);
+    GSList *members;
+
+    members = matrix_roommembers_get_renamed_members(table);
+    while(members != NULL) {
+        MatrixRoomMember *member = members->data;
+        gchar *current_displayname;
+        const gchar *new_displayname;
+        GSList *tmp;
+
+        current_displayname = matrix_roommember_get_opaque_data(member);
+        g_assert(current_displayname != NULL);
+
+        new_displayname = matrix_roommember_get_displayname(member);
+
+        purple_conv_chat_rename_user(chat, current_displayname,
+                new_displayname);
+
+        matrix_roommember_set_opaque_data(member, g_strdup(new_displayname),
+                _on_member_deleted);
+        g_free(current_displayname);
+
+        tmp = members;
+        members = members->next;
+        g_slist_free_1(tmp);
+    }
+}
+
+
+/**
+ * Tell libpurple about departed members
+ */
+void _handle_left_members(PurpleConversation *conv)
+{
+    PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
+    MatrixRoomMemberTable *table = matrix_room_get_member_table(conv);
+    GSList *members;
+
+    members = matrix_roommembers_get_left_members(table);
+    while(members != NULL) {
+        MatrixRoomMember *member = members->data;
+        gchar *current_displayname;
+        GSList *tmp;
+
+        current_displayname = matrix_roommember_get_opaque_data(member);
+        g_assert(current_displayname != NULL);
+        purple_conv_chat_remove_user(chat, current_displayname, NULL);
+
+        g_free(current_displayname);
+        matrix_roommember_set_opaque_data(member, NULL, NULL);
+
+        tmp = members;
+        members = members->next;
+        g_slist_free_1(tmp);
+    }
+}
+
+
+static void _update_user_list(PurpleConversation *conv,
+        gboolean announce_arrivals)
+{
+    _handle_new_members(conv, announce_arrivals);
+    _handle_renamed_members(conv);
+    _handle_left_members(conv);
+}
+
+
+
+/**
+ * Get the userid of a member of a room, given their displayname
+ *
+ * @returns a string, which will be freed by the caller, or null if not known
+ */
+gchar *matrix_room_displayname_to_userid(struct _PurpleConversation *conv,
+        const gchar *who)
+{
+    /* TODO: make this more efficient */
+    MatrixRoomMemberTable *table = matrix_room_get_member_table(conv);
+    GList *members;
+
+    members = matrix_roommembers_get_active_members(table, TRUE);
+
+    while(members != NULL) {
+        MatrixRoomMember *member = members->data;
+        const gchar *displayname = matrix_roommember_get_opaque_data(member);
+        if(g_strcmp0(displayname, who) == 0) {
+            g_list_free(members);
+            return g_strdup(matrix_roommember_get_user_id(member));
+        }
+    }
+
+    g_list_free(members);
+    return NULL;
+}
+
+/* ************************************************************************** */
 
 void matrix_room_complete_state_update(PurpleConversation *conv,
         gboolean announce_arrivals)
 {
     _update_user_list(conv, announce_arrivals);
+    if(_get_flags(conv) & PURPLE_CONV_FLAG_NEEDS_NAME_UPDATE)
+        _update_room_alias(conv);
 }
 
 
@@ -585,9 +761,13 @@ static const gchar *_get_my_display_name(PurpleConversation *conv)
     MatrixConnectionData *conn = _get_connection_data_from_conversation(conv);
     MatrixRoomMemberTable *member_table =
             matrix_room_get_member_table(conv);
+    MatrixRoomMember *me;
 
-    return matrix_roommembers_get_displayname_for_member(
-            member_table, conn->user_id);
+    me = matrix_roommembers_lookup_member(member_table, conn->user_id);
+    if(me == NULL)
+        return NULL;
+    else
+        return matrix_roommember_get_displayname(me);
 }
 
 /**
@@ -607,13 +787,4 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
 
     purple_conv_chat_write(chat, _get_my_display_name(conv),
             message, PURPLE_MESSAGE_SEND, g_get_real_time()/1000/1000);
-}
-
-
-gchar *matrix_room_displayname_to_userid(struct _PurpleConversation *conv,
-        const gchar *who)
-{
-    MatrixRoomMemberTable *member_table =
-            matrix_room_get_member_table(conv);
-    return matrix_roommembers_displayname_to_userid(member_table, who);
 }

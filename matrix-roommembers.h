@@ -30,6 +30,54 @@
 #define MATRIX_ROOM_MEMBERSHIP_INVITE 2
 #define MATRIX_ROOM_MEMBERSHIP_LEAVE 3
 
+
+
+/* ****************************************************************************
+ *
+ * Handling of individual members
+ */
+
+typedef struct _MatrixRoomMember MatrixRoomMember;
+
+/**
+ * Get the user_id for the given member
+ *
+ * @returns a string, which should *not* be freed
+ */
+const gchar *matrix_roommember_get_user_id(const MatrixRoomMember *member);
+
+/**
+ * Get the displayname for the given member
+ *
+ * @returns a string, which should *not* be freed
+ */
+const gchar *matrix_roommember_get_displayname(const MatrixRoomMember *member);
+
+
+/**
+ * Get the opaque data associated with the given member
+ */
+gpointer matrix_roommember_get_opaque_data(const MatrixRoomMember *member);
+
+
+typedef void (*DestroyMemberNotify)(MatrixRoomMember *member);
+/**
+ * Set the opaque data associated with the given member
+ *
+ * @param on_delete: a callback which will be called when the RoomMember is
+ * deleted (usually when its parent MatrixRoomMemberTable is deleted). It is
+ * passed a pointer to the MatrixRoomMember.
+ */
+void matrix_roommember_set_opaque_data(MatrixRoomMember *member,
+        gpointer data, DestroyMemberNotify on_delete);
+
+
+
+/* ****************************************************************************
+ *
+ * Member table
+ */
+
 typedef struct _MatrixRoomMemberTable MatrixRoomMemberTable;
 struct _JsonObject;
 
@@ -56,18 +104,17 @@ void matrix_roommembers_update_member(MatrixRoomMemberTable *table,
 
 
 /**
- * Get the displayname for the given userid
+ * Look up a room member given the userid
  *
- * @returns a string, which should *not* be freed
+ * @returns MatrixRoomMember *, or NULL if unknown
  */
-const gchar *matrix_roommembers_get_displayname_for_member(
-        MatrixRoomMemberTable *table, const gchar *user_id);
-
+MatrixRoomMember *matrix_roommembers_lookup_member(MatrixRoomMemberTable *table,
+        const gchar *member_user_id);
 
 /**
  * Get a list of the members who have joined this room.
  *
- * Returns a list of user ids. Free the list, but not the string pointers.
+ * Returns a list of MatrixRoomMember *s. Free the list, but not the pointers.
  */
 GList *matrix_roommembers_get_active_members(
         MatrixRoomMemberTable *member_table, gboolean include_invited);
@@ -76,45 +123,30 @@ GList *matrix_roommembers_get_active_members(
 /**
  * Get a list of the new members since the last time this function was called.
  *
- * @param display_names     returns the list of display names. Do not free the
- *                          pointers.
- * @param flags             returns a corresponding list of zeros
+ * @returns a list of MatrixRoomMember *s. Free the list when you are done with
+ * it.
  */
-void matrix_roommembers_get_new_members(MatrixRoomMemberTable *table,
-        GList **display_names, GList **flags);
+GSList *matrix_roommembers_get_new_members(MatrixRoomMemberTable *table);
 
 
 /**
  * Get a list of the members who have been renamed since the last time this
  * function was called.
  *
- * @param old_names  returns the list of old display names. These are no
- *                   longer required, so should be freed
- * @param new_names  returns the list of new display names. Do *not* free these
- *                   pointers.
+ * @returns a list of MatrixRoomMember *s. Free the list when you are done with
+ * it.
  */
-void matrix_roommembers_get_renamed_members(MatrixRoomMemberTable *table,
-        GList **old_names, GList **new_names);
+GSList *matrix_roommembers_get_renamed_members(MatrixRoomMemberTable *table);
 
 
 /**
  * Get a list of the members who have left the channel since the last time this
  * function was called.
  *
- * @param new_names  returns the list of display names. These are no
- *                   longer required, so should be freed
+ * @returns a list of MatrixRoomMember *s. Free the list when you are done with
+ * it.
  */
-void matrix_roommembers_get_left_members(MatrixRoomMemberTable *table,
-        GList **names);
-
-
-/**
- * Get the userid of a member of a room, given their displayname
- *
- * @returns a string, which will be freed by the caller, or null if not known
- */
-gchar *matrix_roommembers_displayname_to_userid(
-        MatrixRoomMemberTable *table, const gchar *who);
+GSList *matrix_roommembers_get_left_members(MatrixRoomMemberTable *table);
 
 
 #endif /* MATRIX_ROOMMEMBERS_H_ */

@@ -35,32 +35,24 @@
  */
 
 typedef struct _MatrixRoomMember {
-    gchar *userid;
-
-    /* the displayname we gave to purple */
-    gchar *current_displayname;
+    gchar *user_id;
 
     /* the current room membership */
     int membership;
 
-    /* the displayname from the state table */
+    /* the displayname from the state table (this is a pointer to the actual
+     * string in the state table, so should not be freed here) */
     const gchar *state_displayname;
+
+    /* data attached to this member (matrix-room.c uses it to track the
+     * name we told libpurple this member had)
+     */
+    gpointer opaque_data;
+
+    /* callback to delete the opaque_data. Called with a pointer to the member.
+     */
+    DestroyMemberNotify on_delete;
 } MatrixRoomMember;
-
-
-/**
- * calculate the displayname for the given member
- *
- * @returns a string, which should be freed
- */
-static gchar *_calculate_displayname_for_member(const MatrixRoomMember *member)
-{
-    if(member->state_displayname != NULL) {
-        return g_strdup(member->state_displayname);
-    } else {
-        return g_strdup(member->userid);
-    }
-}
 
 
 static int _parse_membership(const gchar *membership)
@@ -80,18 +72,66 @@ static int _parse_membership(const gchar *membership)
 static MatrixRoomMember *_new_member(const gchar *userid)
 {
     MatrixRoomMember *mem = g_new0(MatrixRoomMember, 1);
-    mem->userid = g_strdup(userid);
+    mem->user_id = g_strdup(userid);
     return mem;
 }
 
 static void _free_member(MatrixRoomMember *member)
 {
     g_assert(member != NULL);
-    g_free(member->userid);
-    member->userid = NULL;
-    g_free(member->current_displayname);
-    member->current_displayname = NULL;
+    if(member->on_delete)
+        member->on_delete(member);
+    g_free(member->user_id);
+    member->user_id = NULL;
     g_free(member);
+}
+
+
+/**
+ * Get the user_id for the given member
+ *
+ * @returns a string, which should *not* be freed
+ */
+const gchar *matrix_roommember_get_user_id(const MatrixRoomMember *member)
+{
+    return member->user_id;
+}
+
+/**
+ * Get the displayname for the given member
+ *
+ * @returns a string, which should *not* be freed
+ */
+const gchar *matrix_roommember_get_displayname(const MatrixRoomMember *member)
+{
+    if(member->state_displayname != NULL) {
+        /* TODO: if there is more than one member with this displayname, we
+         * should return a deduplicated name
+         */
+        return member->state_displayname;
+    } else {
+        return member->user_id;
+    }
+}
+
+
+/**
+ * Get the opaque data associated with the given member
+ */
+gpointer matrix_roommember_get_opaque_data(const MatrixRoomMember *member)
+{
+    return member->opaque_data;
+}
+
+
+/**
+ * Set the opaque data associated with the given member
+ */
+void matrix_roommember_set_opaque_data(MatrixRoomMember *member,
+        gpointer data, DestroyMemberNotify on_delete)
+{
+    member->opaque_data = data;
+    member->on_delete = on_delete;
 }
 
 
@@ -125,120 +165,10 @@ void matrix_roommembers_free_table(MatrixRoomMemberTable *table)
 }
 
 
-static MatrixRoomMember *_lookup_member(MatrixRoomMemberTable *table,
-        const gchar *userid)
+MatrixRoomMember *matrix_roommembers_lookup_member(MatrixRoomMemberTable *table,
+        const gchar *member_user_id)
 {
-    return g_hash_table_lookup(table->hash_table, userid);
-}
-
-
-#if 0
-static void _on_member_changed_displayname(PurpleConversation *conv,
-        const gchar *member_user_id, MatrixRoomMember *member)
-{
-    PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
-    gchar *old_displayname, *new_displayname;
-
-    old_displayname = member->current_displayname;
-    g_assert(old_displayname != NULL);
-    new_displayname = _calculate_displayname_for_member(member_user_id, member);
-
-    purple_conv_chat_rename_user(chat, old_displayname, new_displayname);
-    g_free(old_displayname);
-    member->current_displayname = new_displayname;
-}
-
-
-static void _on_member_left(PurpleConversation *conv,
-        const gchar *member_user_id, MatrixRoomMember *member)
-{
-    PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
-    gchar *old_displayname;
-
-    old_displayname = member->current_displayname;
-    g_assert(old_displayname != NULL);
-    purple_conv_chat_remove_user(chat, old_displayname, NULL);
-    g_free(old_displayname);
-    member->current_displayname = NULL;
-}
-#endif
-
-
-const gchar *matrix_roommembers_get_displayname_for_member(
-        MatrixRoomMemberTable *table, const gchar *user_id)
-{
-    MatrixRoomMember *member = _lookup_member(table, user_id);
-    gchar *displayname;
-
-    if(member == NULL)
-        return user_id;
-
-    displayname = member -> current_displayname;
-
-    if (displayname != NULL)
-        return displayname;
-
-    displayname = _calculate_displayname_for_member(member);
-    member -> current_displayname = displayname;
-    return displayname;
-}
-
-
-void matrix_roommembers_get_new_members(MatrixRoomMemberTable *table,
-        GList **display_names, GList **flags)
-{
-    while(table->new_members != NULL) {
-        MatrixRoomMember *member = table->new_members->data;
-        gchar *displayname;
-        GSList *tmp;
-
-        g_assert(member->current_displayname == NULL);
-        displayname = _calculate_displayname_for_member(member);
-
-        *display_names = g_list_prepend(*display_names, displayname);
-        *flags = g_list_prepend(*flags, GINT_TO_POINTER(0));
-
-        tmp = table->new_members;
-        table->new_members = tmp->next;
-        g_slist_free_1(tmp);
-    }
-}
-
-void matrix_roommembers_get_renamed_members(MatrixRoomMemberTable *table,
-        GList **old_names, GList **new_names)
-{
-    while(table->renamed_members != NULL) {
-        MatrixRoomMember *member = table->renamed_members->data;
-        gchar *displayname;
-        GSList *tmp;
-
-        g_assert(member->current_displayname != NULL);
-        displayname = _calculate_displayname_for_member(member);
-        *old_names = g_list_prepend(*old_names, member->current_displayname);
-        *new_names = g_list_prepend(*new_names, displayname);
-        member->current_displayname = displayname;
-
-        tmp = table->renamed_members;
-        table->renamed_members = tmp->next;
-        g_slist_free_1(tmp);
-    }
-}
-
-void matrix_roommembers_get_left_members(MatrixRoomMemberTable *table,
-        GList **names)
-{
-    while(table->left_members != NULL) {
-        MatrixRoomMember *member = table->left_members->data;
-        GSList *tmp;
-
-        g_assert(member->current_displayname != NULL);
-        *names = g_list_prepend(*names, member->current_displayname);
-        member->current_displayname = NULL;
-
-        tmp = table->left_members;
-        table->left_members = tmp->next;
-        g_slist_free_1(tmp);
-    }
+    return g_hash_table_lookup(table->hash_table, member_user_id);
 }
 
 
@@ -258,7 +188,7 @@ void matrix_roommembers_update_member(MatrixRoomMemberTable *table,
 
     new_membership_val = _parse_membership(new_membership);
 
-    member = _lookup_member(table, member_user_id);
+    member = matrix_roommembers_lookup_member(table, member_user_id);
 
     if(member != NULL) {
         old_displayname = member -> state_displayname;
@@ -280,17 +210,20 @@ void matrix_roommembers_update_member(MatrixRoomMemberTable *table,
 
     if(new_membership_val == MATRIX_ROOM_MEMBERSHIP_JOIN) {
         if(old_membership_val != MATRIX_ROOM_MEMBERSHIP_JOIN) {
-            /* new user in this room */
+            purple_debug_info("matrixprpl", "%s (%s) joins\n",
+                    member_user_id, new_displayname);
             table->new_members = g_slist_append(
                     table->new_members, member);
         } else if(g_strcmp0(old_displayname, new_displayname) != 0) {
-            /* user has changed name */
+            purple_debug_info("matrixprpl", "%s (%s) changed name (was %s)\n",
+                    member_user_id, new_displayname, old_displayname);
             table->renamed_members = g_slist_append(
                     table->renamed_members, member);
         }
     } else {
         if(old_membership_val == MATRIX_ROOM_MEMBERSHIP_JOIN) {
-            /* user has left this room */
+            purple_debug_info("matrixprpl", "%s (%s) leaves\n",
+                    member_user_id, old_displayname);
             table->left_members = g_slist_append(
                     table->left_members, member);
         }
@@ -299,7 +232,7 @@ void matrix_roommembers_update_member(MatrixRoomMemberTable *table,
 
 
 /**
- * Returns a list of user ids. Free the list, but not the string pointers.
+ * Returns a list of MatrixRoomMember *s. Free the list, but not the pointers.
  */
 GList *matrix_roommembers_get_active_members(
         MatrixRoomMemberTable *member_table, gboolean include_invited)
@@ -310,38 +243,40 @@ GList *matrix_roommembers_get_active_members(
 
     g_hash_table_iter_init (&iter, member_table->hash_table);
     while (g_hash_table_iter_next (&iter, &key, &value)) {
-        const gchar *user_id = key;
         MatrixRoomMember *member = value;
 
         if(member->membership == MATRIX_ROOM_MEMBERSHIP_JOIN ||
                 (include_invited &&
                         member->membership == MATRIX_ROOM_MEMBERSHIP_INVITE)) {
-            members = g_list_prepend(members, (gpointer)user_id);
+            members = g_list_prepend(members, value);
         }
     }
     return members;
 }
 
 
-/**
- * Get the userid of a member of a room, given their displayname
- *
- * @returns a string, which will be freed by the caller, or null if not known
- */
-gchar *matrix_roommembers_displayname_to_userid(
-        MatrixRoomMemberTable *table, const gchar *who)
+GSList *matrix_roommembers_get_new_members(MatrixRoomMemberTable *table)
 {
-    /* TODO: make this more efficient */
-    GHashTableIter iter;
-    gpointer key, value;
-    g_hash_table_iter_init (&iter, table->hash_table);
-    while (g_hash_table_iter_next (&iter, &key, &value)) {
-        const gchar *user_id = key;
-        MatrixRoomMember *member = value;
-        if(member->current_displayname != NULL
-                && strcmp(who, member->current_displayname) == 0) {
-            return g_strdup(user_id);
-        }
-    }
-    return NULL;
+    GSList *members = table->new_members;
+    table->new_members = NULL;
+    return members;
 }
+
+
+GSList *matrix_roommembers_get_renamed_members(MatrixRoomMemberTable *table)
+{
+    GSList *members = table->renamed_members;
+    table->renamed_members = NULL;
+    return members;
+
+}
+
+
+GSList *matrix_roommembers_get_left_members(MatrixRoomMemberTable *table)
+{
+    GSList *members = table->left_members;
+    table->left_members = NULL;
+    return members;
+
+}
+
