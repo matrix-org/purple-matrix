@@ -728,21 +728,22 @@ gchar *matrix_room_displayname_to_userid(struct _PurpleConversation *conv,
 {
     /* TODO: make this more efficient */
     MatrixRoomMemberTable *table = matrix_room_get_member_table(conv);
-    GList *members;
+    GList *members, *ptr;
+    gchar *result = NULL;
 
     members = matrix_roommembers_get_active_members(table, TRUE);
 
-    while(members != NULL) {
-        MatrixRoomMember *member = members->data;
+    for(ptr = members; ptr != NULL; ptr = ptr->next) {
+        MatrixRoomMember *member = ptr->data;
         const gchar *displayname = matrix_roommember_get_opaque_data(member);
         if(g_strcmp0(displayname, who) == 0) {
-            g_list_free(members);
-            return g_strdup(matrix_roommember_get_user_id(member));
+            result = g_strdup(matrix_roommember_get_user_id(member));
+            break;
         }
     }
 
     g_list_free(members);
-    return NULL;
+    return result;
 }
 
 /* ************************************************************************** */
