@@ -86,7 +86,7 @@ void matrix_statetable_update(MatrixRoomStateEventTable *state_table,
 
     if(event_type == NULL || state_key == NULL || sender == NULL ||
             json_content_obj == NULL) {
-        purple_debug_warning("matrixprpl", "event missing fields");
+        purple_debug_warning("matrixprpl", "event missing fields\n");
         return;
     }
 

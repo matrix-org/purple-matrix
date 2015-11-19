@@ -147,6 +147,7 @@ static void _schedule_name_update(PurpleConversation *conv)
     guint flags = _get_flags(conv);
     flags |= PURPLE_CONV_FLAG_NEEDS_NAME_UPDATE;
     _set_flags(conv, flags);
+    purple_debug_info("matrixprpl", "scheduled deferred room name update\n");
 }
 
 /**
@@ -188,7 +189,7 @@ static void _on_state_update(const gchar *event_type,
     }
     else if(strcmp(event_type, "m.room.alias") == 0 ||
             strcmp(event_type, "m.room.canonical_alias") == 0 ||
-            strcmp(event_type, "m.room.room_name") == 0) {
+            strcmp(event_type, "m.room.name") == 0) {
         _schedule_name_update(conv);
     }
 }
