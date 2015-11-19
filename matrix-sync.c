@@ -71,10 +71,16 @@ static void _parse_room_event(JsonArray *event_array, guint event_idx,
         return;
     }
 
-    if(data->state_events)
+    if(data->state_events) {
         matrix_room_handle_state_event(conv, event_id, json_event_obj);
-    else
-        matrix_room_handle_timeline_event(conv, event_id, json_event_obj);
+    } else {
+        if(json_object_has_member(json_event_obj, "state_key")) {
+            matrix_room_handle_state_event(conv, event_id, json_event_obj);
+            matrix_room_complete_state_update(conv, TRUE);
+        } else {
+            matrix_room_handle_timeline_event(conv, event_id, json_event_obj);
+        }
+    }
 }
 
 /**
