@@ -59,22 +59,20 @@ void matrix_room_leave_chat(struct _PurpleConversation *conv);
  * Update the state table on a room, based on a received state event
  *
  * @param conv        info on the room
- * @param event_id    id of the event
  * @param json_event_obj  the event object.
  */
 
 void matrix_room_handle_state_event(struct _PurpleConversation *conv,
-        const gchar *event_id, JsonObject *json_event_obj);
+        JsonObject *json_event_obj);
 
 /**
  * handle a single received timeline event for a room (such as a message)
  *
  * @param conv        info on the room
- * @param event_id    id of the event
  * @param json_event_obj  the event object.
  */
 void matrix_room_handle_timeline_event(struct _PurpleConversation *conv,
-        const gchar *event_id, JsonObject *json_event_obj);
+        JsonObject *json_event_obj);
 
 /**
  * Send a message in a room

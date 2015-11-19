@@ -195,7 +195,7 @@ static void _on_state_update(const gchar *event_type,
 }
 
 void matrix_room_handle_state_event(struct _PurpleConversation *conv,
-        const gchar *event_id, JsonObject *json_event_obj)
+        JsonObject *json_event_obj)
 {
     MatrixRoomStateEventTable *state_table = matrix_room_get_state_table(conv);
     matrix_statetable_update(state_table, json_event_obj,
@@ -438,7 +438,7 @@ static void _cancel_event_send(PurpleConversation *conv)
 /*****************************************************************************/
 
 void matrix_room_handle_timeline_event(PurpleConversation *conv,
-        const gchar *event_id, JsonObject *json_event_obj)
+       JsonObject *json_event_obj)
 {
     const gchar *event_type, *sender_id, *transaction_id;
     gint64 timestamp;
@@ -472,8 +472,7 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
 
     msg_body = matrix_json_object_get_string_member(json_content_obj, "body");
     if(msg_body == NULL) {
-        purple_debug_warning("matrixprpl", "no body in message event %s\n",
-                        event_id);
+        purple_debug_warning("matrixprpl", "no body in message event\n");
         return;
     }
 

@@ -36,7 +36,6 @@
 
 typedef struct _RoomEventParserData {
     PurpleConversation *conv;
-    JsonObject *event_map;
     gboolean state_events;
 } RoomEventParserData;
 
@@ -54,31 +53,22 @@ static void _parse_room_event(JsonArray *event_array, guint event_idx,
 {
     RoomEventParserData *data = user_data;
     PurpleConversation *conv = data->conv;
-    JsonObject *event_map = data->event_map;
     JsonObject *json_event_obj;
-    const gchar *event_id;
 
-    event_id = matrix_json_node_get_string(event);
-    if(event_id == NULL) {
-        purple_debug_warning("prplmatrix", "non-string event_id\n");
-        return;
-    }
-
-    json_event_obj = matrix_json_object_get_object_member(
-            event_map, event_id);
+    json_event_obj = matrix_json_node_get_object(event);
     if(json_event_obj == NULL) {
-        purple_debug_warning("prplmatrix", "unknown event_id %s\n", event_id);
+        purple_debug_warning("prplmatrix", "non-object event\n");
         return;
     }
 
     if(data->state_events) {
-        matrix_room_handle_state_event(conv, event_id, json_event_obj);
+        matrix_room_handle_state_event(conv, json_event_obj);
     } else {
         if(json_object_has_member(json_event_obj, "state_key")) {
-            matrix_room_handle_state_event(conv, event_id, json_event_obj);
+            matrix_room_handle_state_event(conv, json_event_obj);
             matrix_room_complete_state_update(conv, TRUE);
         } else {
-            matrix_room_handle_timeline_event(conv, event_id, json_event_obj);
+            matrix_room_handle_timeline_event(conv, json_event_obj);
         }
     }
 }
@@ -87,9 +77,9 @@ static void _parse_room_event(JsonArray *event_array, guint event_idx,
  * parse the list of events in a sync response
  */
 static void _parse_room_event_array(PurpleConversation *conv, JsonArray *events,
-        JsonObject* event_map, gboolean state_events)
+        gboolean state_events)
 {
-    RoomEventParserData data = {conv, event_map, state_events};
+    RoomEventParserData data = {conv, state_events};
     json_array_foreach_element(events, _parse_room_event, &data);
 }
 
@@ -136,7 +126,7 @@ static PurpleChat *_ensure_blist_entry(PurpleAccount *acct,
 static void matrix_sync_room(const gchar *room_id,
         JsonObject *room_data, PurpleConnection *pc)
 {
-    JsonObject *state_object, *timeline_object, *event_map;
+    JsonObject *state_object, *timeline_object;
     JsonArray *state_array, *timeline_array;
     PurpleConversation *conv;
     gboolean initial_sync = FALSE;
@@ -152,13 +142,11 @@ static void matrix_sync_room(const gchar *room_id,
         initial_sync = TRUE;
     }
 
-    event_map = matrix_json_object_get_object_member(room_data, "event_map");
-
     /* parse the room state */
     state_object = matrix_json_object_get_object_member(room_data, "state");
     state_array = matrix_json_object_get_array_member(state_object, "events");
     if(state_array != NULL)
-        _parse_room_event_array(conv, state_array, event_map, TRUE);
+        _parse_room_event_array(conv, state_array, TRUE);
 
     matrix_room_complete_state_update(conv, !initial_sync);
 
@@ -168,7 +156,7 @@ static void matrix_sync_room(const gchar *room_id,
     timeline_array = matrix_json_object_get_array_member(
                 timeline_object, "events");
     if(timeline_array != NULL)
-        _parse_room_event_array(conv, timeline_array, event_map, FALSE);
+        _parse_room_event_array(conv, timeline_array, FALSE);
 }
 
 
@@ -276,7 +264,7 @@ void matrix_sync_parse(PurpleConnection *pc, JsonNode *body,
     *next_batch = matrix_json_object_get_string_member(rootObj, "next_batch");
     rooms = matrix_json_object_get_object_member(rootObj, "rooms");
 
-    joined_rooms = matrix_json_object_get_object_member(rooms, "joined");
+    joined_rooms = matrix_json_object_get_object_member(rooms, "join");
     if(joined_rooms != NULL) {
         room_ids = json_object_get_members(joined_rooms);
         for(elem = room_ids; elem; elem = elem->next) {
@@ -290,7 +278,7 @@ void matrix_sync_parse(PurpleConnection *pc, JsonNode *body,
     }
 
 
-    invited_rooms = matrix_json_object_get_object_member(rooms, "invited");
+    invited_rooms = matrix_json_object_get_object_member(rooms, "invite");
     if(invited_rooms != NULL) {
         room_ids = json_object_get_members(invited_rooms);
         for(elem = room_ids; elem; elem = elem->next) {
