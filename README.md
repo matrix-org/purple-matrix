@@ -24,6 +24,10 @@ The following are not yet supported:
  * Room topics
  * Voice/video calling
 
+The plugin requires a homeserver running a very recent (v0.11.0 is /not/ new
+enough), which is not (currently) the case for the matrix.org homeserver. You
+will therefore need to run your own homeserver from the 'develop' branch of
+synapse.
 
 # Installation
 
@@ -60,7 +64,4 @@ You will then need to restart Pidgin, after which you should be able to add a
 The Advanced account option 'On reconnect, skip messages which were received in
 a previous session' is disabled by default. This means that pidgin will show
 the last few messages for each room each time it starts.  If this option is
-enabled, only new messages will be shown.  This option requires a homeserver
-running the v2_alpha API, which is not (currently) the case for the matrix.org
-homeserver.  You will therefore need to run your own homeserver from the
-'develop' branch of synapse.
+enabled, only new messages will be shown.
