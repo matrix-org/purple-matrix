@@ -24,10 +24,8 @@ The following are not yet supported:
  * Room topics
  * Voice/video calling
 
-The plugin requires a homeserver running a very recent (v0.11.0 is /not/ new
-enough), which is not (currently) the case for the matrix.org homeserver. You
-will therefore need to run your own homeserver from the 'develop' branch of
-synapse.
+The plugin requires a matrix homeserver supporting client-server API r0. Synapse
+v0.12.0-rc1 or later is sufficient.
 
 # Installation
 

@@ -335,7 +335,7 @@ static void matrixprpl_init(PurplePlugin *plugin)
     protocol_options = g_list_append(protocol_options,
             purple_account_option_bool_new(
                     _("On reconnect, skip messages which were received in a "
-                          "previous session (requires development homeserver)"),
+                      "previous session"),
                     PRPL_ACCOUNT_OPT_SKIP_OLD_MESSAGES, FALSE));
 
     prpl_info.protocol_options = protocol_options;
