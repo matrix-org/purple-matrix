@@ -555,6 +555,8 @@ MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
 
     purple_debug_info("matrixprpl", "logging in %s\n", username);
 
+    // As per https://github.com/matrix-org/synapse/pull/459, synapse
+    // didn't expose login at 'r0'.
     url = g_strconcat(conn->homeserver, "_matrix/client/api/v1/login",
             NULL);
 
@@ -581,7 +583,7 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
 
     url = g_string_new(conn->homeserver);
     g_string_append_printf(url,
-            "_matrix/client/v2_alpha/sync?access_token=%s&timeout=%i",
+            "_matrix/client/r0/sync?access_token=%s&timeout=%i",
             purple_url_encode(conn->access_token), timeout);
 
     if(since != NULL)
@@ -621,7 +623,7 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
      * the url gradually
      */
     url = g_string_new(conn->homeserver);
-    g_string_append(url, "_matrix/client/api/v1/rooms/");
+    g_string_append(url, "_matrix/client/r0/rooms/");
     g_string_append(url, purple_url_encode(room_id));
     g_string_append(url, "/send/");
     g_string_append(url, purple_url_encode(event_type));
@@ -662,7 +664,7 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
     MatrixApiRequestData *fetch_data;
 
     url = g_string_new(conn->homeserver);
-    g_string_append(url, "_matrix/client/api/v1/rooms/");
+    g_string_append(url, "_matrix/client/r0/rooms/");
     g_string_append(url, purple_url_encode(room));
     g_string_append(url, "/join?access_token=");
     g_string_append(url, purple_url_encode(conn->access_token));
@@ -689,7 +691,7 @@ MatrixApiRequestData *matrix_api_leave_room(MatrixConnectionData *conn,
     MatrixApiRequestData *fetch_data;
 
     url = g_string_new(conn->homeserver);
-    g_string_append(url, "_matrix/client/api/v1/rooms/");
+    g_string_append(url, "_matrix/client/r0/rooms/");
     g_string_append(url, purple_url_encode(room_id));
     g_string_append(url, "/leave?access_token=");
     g_string_append(url, purple_url_encode(conn->access_token));
@@ -715,7 +717,7 @@ MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
     MatrixApiRequestData *fetch_data;
 
     url = g_string_new(conn->homeserver);
-    g_string_append(url, "/_matrix/client/api/v1/rooms/");
+    g_string_append(url, "/_matrix/client/r0/rooms/");
     g_string_append(url, purple_url_encode(room_id));
     g_string_append(url, "/state?access_token=");
     g_string_append(url, purple_url_encode(conn->access_token));
