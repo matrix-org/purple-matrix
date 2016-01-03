@@ -1,6 +1,5 @@
 #!/usr/bin/make -f
 
-
 PIDGIN_TREE_TOP ?= ../pidgin-2.10.12
 WIN32_DEV_TOP ?= $(PIDGIN_TREE_TOP)/../win32-dev
 GLIB_TOP ?= $(WIN32_DEV_TOP)/gtk2-2.28
@@ -9,44 +8,13 @@ HTTP_PARSER_TOP ?= $(WIN32_DEV_TOP)/http-parser-2.6.0
 
 CC := $(WIN32_DEV_TOP)/mingw/bin/gcc.exe
 
-CFLAGS += -DPURPLE_PLUGINS -I$(PIDGIN_TREE_TOP)/libpurple -I$(JSON_GLIB_TOP)/include/json-glib-1.0 -I$(GLIB_TOP)/include/glib-2.0 -I$(GLIB_TOP)/lib/glib-2.0/include -I$(HTTP_PARSER_TOP)
-CFLAGS += -Wall -g -O0 -Werror
+CFLAGS += -I$(PIDGIN_TREE_TOP)/libpurple -I$(JSON_GLIB_TOP)/include/json-glib-1.0 -I$(GLIB_TOP)/include/glib-2.0 -I$(GLIB_TOP)/lib/glib-2.0/include -I$(HTTP_PARSER_TOP)
 LDLIBS += -L$(PIDGIN_TREE_TOP)/libpurple -lpurple -L$(JSON_GLIB_TOP)/lib -ljson-glib-1.0 -L$(GLIB_TOP)/bin -lglib-2.0-0 -lgobject-2.0-0
 LDLIBS += -L$(HTTP_PARSER_TOP) -lhttp_parser -static-libgcc
 
 PLUGIN_DIR_PURPLE	=  "C:\Program Files (x86)\Pidgin\plugins"
 DATA_ROOT_DIR_PURPLE	=  "C:\Program Files (x86)\Pidgin"
 
-
-# generate .d files when compiling
-CPPFLAGS += -MMD
-
-OBJECTS = libmatrix.o matrix-api.o matrix-connection.o \
-    matrix-event.o \
-    matrix-json.o \
-    matrix-room.o \
-    matrix-roommembers.o \
-    matrix-statetable.o \
-    matrix-sync.o
 TARGET = libmatrix.dll
 
-all: $(TARGET)
-clean:
-	rm -f $(OBJECTS) $(OBJECTS:.o=.d) $(TARGET)
-
-install:
-	mkdir -p $(DESTDIR)$(PLUGIN_DIR_PURPLE)
-	install -m 664 $(TARGET) $(DESTDIR)$(PLUGIN_DIR_PURPLE)
-	for i in 16 22 48; do \
-	    mkdir -p $(DESTDIR)$(DATA_ROOT_DIR_PURPLE)/pixmaps/pidgin/protocols/$$i; \
-	    install -m 664 matrix-$${i}px.png $(DESTDIR)$(DATA_ROOT_DIR_PURPLE)/pixmaps/pidgin/protocols/$$i/matrix.png; \
-	done
-
-
-%.o: %.c
-	$(CC) $(CFLAGS) $(DEFINES) $(INCLUDE_PATHS) -o $@ -c $<
-
-$(TARGET): $(OBJECTS)
-	$(LINK.o) -shared $^ $(LOADLIBES) $(LDLIBS) -o $@
-
--include $(OBJECTS:.o=.d)
+include Makefile.common
