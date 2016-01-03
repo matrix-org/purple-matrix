@@ -331,7 +331,7 @@ static void _add_proxy_auth_headers(GString *request_str, PurpleProxyInfo *gpi)
     if (username == NULL)
         return;
 
-	hostname = g_get_host_name();
+    hostname = g_get_host_name();
 
     t1 = g_strdup_printf("%s:%s", username, password ? password : "");
     t2 = purple_base64_encode((const guchar *)t1, strlen(t1));
@@ -527,15 +527,15 @@ gchar *_build_login_body(const gchar *username, const gchar *password)
     json_object_set_string_member(body, "user", username);
     json_object_set_string_member(body, "password", password);
 	
-	node = json_node_new(JSON_NODE_OBJECT);
-	json_node_set_object(node, body);
+    node = json_node_new(JSON_NODE_OBJECT);
+    json_node_set_object(node, body);
+    json_object_unref(body);
 
     generator = json_generator_new();
     json_generator_set_root(generator, node);
     result = json_generator_to_data(generator, NULL);
     g_object_unref(G_OBJECT(generator));
     json_node_free(node);
-    json_object_unref(body);
     return result;
 }
 
@@ -627,8 +627,8 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
     g_string_append(url, "?access_token=");
     g_string_append(url, purple_url_encode(conn->access_token));
 
-	body_node = json_node_new(JSON_NODE_OBJECT);
-	json_node_set_object(body_node, content);
+    body_node = json_node_new(JSON_NODE_OBJECT);
+    json_node_set_object(body_node, content);
 
     generator = json_generator_new();
     json_generator_set_root(generator, body_node);
