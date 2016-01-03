@@ -48,6 +48,20 @@ sudo make install
 You will then need to restart Pidgin, after which you should be able to add a
 'Matrix' account.
 
+## Building on Windows
+
+Set up a build environment using
+[the Pidgin BuildingWinPidgin docs](https://developer.pidgin.im/wiki/BuildingWinPidgin)
+
+You should then be able to:
+```
+make -f Makefile.mingw install
+```
+
+You will then need to restart Pidgin, after which you should be able to add a
+'Matrix' account.
+
+
 # Usage
 
 * Open the 'Manage accounts' dialog (under the 'Accounts' menu) and click 
