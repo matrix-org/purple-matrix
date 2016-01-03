@@ -324,20 +324,14 @@ static void _add_proxy_auth_headers(GString *request_str, PurpleProxyInfo *gpi)
 {
     const char *username, *password;
     char *t1, *t2, *ntlm_type1;
-    char hostname[256];
-    int ret;
+    const gchar *hostname;
 
     username = purple_proxy_info_get_username(gpi);
     password = purple_proxy_info_get_password(gpi);
     if (username == NULL)
         return;
 
-    ret = gethostname(hostname, sizeof(hostname));
-    hostname[sizeof(hostname) - 1] = '\0';
-    if (ret < 0 || hostname[0] == '\0') {
-          purple_debug_warning("util", "proxy - gethostname() failed -- is your hostname set?");
-          strcpy(hostname, "localhost");
-    }
+	hostname = g_get_host_name();
 
     t1 = g_strdup_printf("%s:%s", username, password ? password : "");
     t2 = purple_base64_encode((const guchar *)t1, strlen(t1));
@@ -427,7 +421,7 @@ static gchar *_build_request(PurpleAccount *acct, const gchar *url,
             (int)(url_path-url_host), url_host);
 
     g_string_append(request_str, "Connection: close\r\n");
-    g_string_append_printf(request_str, "Content-Length: %zi\r\n",
+    g_string_append_printf(request_str, "Content-Length: %" G_GSIZE_FORMAT "\r\n",
             body == NULL ? 0 : strlen(body));
 
     if(using_http_proxy)
@@ -532,15 +526,16 @@ gchar *_build_login_body(const gchar *username, const gchar *password)
     json_object_set_string_member(body, "type", "m.login.password");
     json_object_set_string_member(body, "user", username);
     json_object_set_string_member(body, "password", password);
-    node = json_node_alloc();
-    json_node_init_object(node, body);
-    json_object_unref(body);
+	
+	node = json_node_new(JSON_NODE_OBJECT);
+	json_node_set_object(node, body);
 
     generator = json_generator_new();
     json_generator_set_root(generator, node);
     result = json_generator_to_data(generator, NULL);
     g_object_unref(G_OBJECT(generator));
     json_node_free(node);
+    json_object_unref(body);
     return result;
 }
 
@@ -632,8 +627,8 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
     g_string_append(url, "?access_token=");
     g_string_append(url, purple_url_encode(conn->access_token));
 
-    body_node = json_node_alloc();
-    json_node_init_object(body_node, content);
+	body_node = json_node_new(JSON_NODE_OBJECT);
+	json_node_set_object(body_node, content);
 
     generator = json_generator_new();
     json_generator_set_root(generator, body_node);
