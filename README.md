@@ -55,6 +55,7 @@ Set up a build environment using
 
 You should then be able to:
 ```
+make -f Makefile.mingw
 make -f Makefile.mingw install
 ```
 
