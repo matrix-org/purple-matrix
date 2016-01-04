@@ -64,11 +64,11 @@ static GList *matrixprpl_status_types(PurpleAccount *acct)
     PurpleStatusType *type;
 
     type = purple_status_type_new(PURPLE_STATUS_OFFLINE, "Offline", NULL,
-            FALSE);
+            TRUE);
     types = g_list_prepend(types, type);
 
     type = purple_status_type_new(PURPLE_STATUS_AVAILABLE, "Online", NULL,
-            FALSE);
+            TRUE);
     types = g_list_prepend(types, type);
 
     return types;
