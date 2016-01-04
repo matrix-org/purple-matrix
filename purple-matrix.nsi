@@ -1,0 +1,111 @@
+; This file is part of purple-matrix
+;
+; This program is free software; you can redistribute it and/or modify
+; it under the terms of the GNU General Public License as published by
+; the Free Software Foundation; either version 2 of the License, or
+; (at your option) any later version.
+;
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+; GNU General Public License for more details.
+;
+; You should have received a copy of the GNU General Public License
+; along with this program; if not, write to the Free Software
+; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111-1301  USA
+;
+; Copyright Matthias Jentsch, Eion Robb 2014-2015
+
+; Script based on the Skype4Pidgin and Off-the-Record Messaging NSI files
+
+SetCompress off
+
+; todo: SetBrandingImage
+; HM NIS Edit Wizard helper defines
+!define PRODUCT_NAME "purple-matrix"
+!define PRODUCT_VERSION "${PLUGIN_VERSION}"
+!define PRODUCT_PUBLISHER "The purple-matrix team"
+!define PRODUCT_WEB_SITE "https://github.com/matrix-org/purple-matrix"
+!define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
+!define PRODUCT_UNINST_ROOT_KEY "HKLM"
+
+; MUI 1.67 compatible ------
+!include "MUI.nsh"
+
+; MUI Settings
+!define MUI_ABORTWARNING
+!define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install.ico"
+!define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall.ico"
+
+; Welcome page
+!insertmacro MUI_PAGE_WELCOME
+; License page
+!insertmacro MUI_PAGE_LICENSE "LICENSE"
+; Instfiles page
+!insertmacro MUI_PAGE_INSTFILES
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_TEXT "Run Pidgin"
+!define MUI_FINISHPAGE_RUN_FUNCTION "RunPidgin"
+!insertmacro MUI_PAGE_FINISH
+
+; Uninstaller pages
+;!insertmacro MUI_UNPAGE_INSTFILES
+
+; Language files
+!insertmacro MUI_LANGUAGE "English"
+
+; MUI end ------
+
+Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
+OutFile "${PRODUCT_NAME}-${PRODUCT_VERSION}.exe"
+
+Var "PidginDir"
+
+ShowInstDetails show
+ShowUnInstDetails show
+
+Section "MainSection" SEC01
+    ;Check for pidgin installation
+    Call GetPidginInstPath
+    
+    SetOverwrite try
+    
+	SetOutPath "$PidginDir\pixmaps\pidgin"
+	File "/oname=protocols\16\matrix.png" "matrix-16px.png"
+	File "/oname=protocols\22\matrix.png" "matrix-22px.png"
+	File "/oname=protocols\48\matrix.png" "matrix-48px.png"
+
+    SetOverwrite try
+	copy:
+		ClearErrors
+		Delete "$PidginDir\plugins\${PRPL_NAME}"
+		IfErrors dllbusy
+		SetOutPath "$PidginDir\plugins"
+	    File "${PRPL_NAME}"
+		Goto after_copy
+	dllbusy:
+		MessageBox MB_RETRYCANCEL "${PRPL_NAME} is busy. Please close Pidgin (including tray icon) and try again" IDCANCEL cancel
+		Goto copy
+	cancel:
+		Abort "Installation of purple-matrix aborted"
+	after_copy:
+	
+	
+SectionEnd
+
+Function GetPidginInstPath
+  Push $0
+  ReadRegStr $0 HKLM "Software\pidgin" ""
+	IfFileExists "$0\pidgin.exe" cont
+	ReadRegStr $0 HKCU "Software\pidgin" ""
+	IfFileExists "$0\pidgin.exe" cont
+		MessageBox MB_OK|MB_ICONINFORMATION "Failed to find Pidgin installation."
+		Abort "Failed to find Pidgin installation. Please install Pidgin first."
+  cont:
+	StrCpy $PidginDir $0
+FunctionEnd
+
+Function RunPidgin
+	ExecShell "" "$PidginDir\pidgin.exe"
+FunctionEnd
+
