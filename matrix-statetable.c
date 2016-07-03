@@ -129,7 +129,7 @@ gchar *matrix_statetable_get_room_alias(MatrixRoomStateEventTable *state_table)
     if(event != NULL) {
         tmpname = matrix_json_object_get_string_member(
                 event->content, "name");
-        if(tmpname != NULL) {
+        if(tmpname != NULL && tmpname[0] != '\0') {
             return g_strdup(tmpname);
         }
     }
