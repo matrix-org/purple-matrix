@@ -18,7 +18,6 @@ The following are not yet supported:
  * Presence indication
  * Typing indication
  * Videos/images/rich text in messages
- * Emotes (/me does an action)
  * File uploads
  * Account registration
  * Room topics

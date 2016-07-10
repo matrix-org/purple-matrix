@@ -791,10 +791,17 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
 {
     JsonObject *content;
     PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
+    const char *type_string = "m.text";
+    const gchar *message_to_send = message;
+
+    if (!strncmp(message, "/me ", 4)) {
+        type_string = "m.emote";
+        message_to_send = message + 4;
+    }
 
     content = json_object_new();
-    json_object_set_string_member(content, "msgtype", "m.text");
-    json_object_set_string_member(content, "body", message);
+    json_object_set_string_member(content, "msgtype", type_string);
+    json_object_set_string_member(content, "body", message_to_send);
 
     _enqueue_event(conv, "m.room.message", content);
     json_object_unref(content);
