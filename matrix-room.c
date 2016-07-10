@@ -444,8 +444,10 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     gint64 timestamp;
     JsonObject *json_content_obj;
     JsonObject *json_unsigned_obj;
-    const gchar *room_id, *msg_body;
+    const gchar *room_id, *msg_body, *msg_type;
+    gchar *tmp_body = NULL;
     PurpleMessageFlags flags;
+
     const gchar *sender_display_name;
     MatrixRoomMember *sender = NULL;
 
@@ -476,6 +478,12 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
         return;
     }
 
+    msg_type = matrix_json_object_get_string_member(json_content_obj, "msgtype");
+    if(msg_type == NULL) {
+        purple_debug_warning("matrixprpl", "no msgtype in message event\n");
+        return;
+    }
+
     json_unsigned_obj = matrix_json_object_get_object_member(json_event_obj,
             "unsigned");
     transaction_id = matrix_json_object_get_string_member(json_unsigned_obj,
@@ -501,12 +509,17 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
         sender_display_name = "<unknown>";
     }
 
+    if (!strcmp(msg_type, "m.emote")) {
+        tmp_body = g_strdup_printf("/me %s", msg_body);
+    }
     flags = PURPLE_MESSAGE_RECV;
 
     purple_debug_info("matrixprpl", "got message from %s in %s\n", sender_id,
             room_id);
     serv_got_chat_in(conv->account->gc, g_str_hash(room_id),
-            sender_display_name, flags, msg_body, timestamp / 1000);
+            sender_display_name, flags, tmp_body ? tmp_body : msg_body,
+            timestamp / 1000);
+    g_free(tmp_body);
 }
 
 
