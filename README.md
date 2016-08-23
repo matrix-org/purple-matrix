@@ -23,7 +23,7 @@ The following are not yet supported:
  * Room topics
  * Voice/video calling
 
-The plugin requires a matrix homeserver supporting client-server API r0. Synapse
+The plugin requires a matrix homeserver supporting client-server API r0.0.0 Synapse
 v0.12.0-rc1 or later is sufficient.
 
 # Installation
