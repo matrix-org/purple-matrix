@@ -375,6 +375,9 @@ static void _send_queued_event(PurpleConversation *conv)
     } else {
         event = queue -> data;
         g_assert(event != NULL);
+        if (event->hook)
+            return event->hook(event, FALSE);
+
         purple_debug_info("matrixprpl", "Sending %s with txn id %s\n",
                 event->event_type, event->txn_id);
 
@@ -389,7 +392,8 @@ static void _send_queued_event(PurpleConversation *conv)
 
 
 static void _enqueue_event(PurpleConversation *conv, const gchar *event_type,
-        JsonObject *event_content)
+        JsonObject *event_content,
+        EventSendHook hook, void *hook_data)
 {
     MatrixRoomEvent *event;
     GList *event_queue;
@@ -398,6 +402,8 @@ static void _enqueue_event(PurpleConversation *conv, const gchar *event_type,
     event = matrix_event_new(event_type, event_content);
     event->txn_id = g_strdup_printf("%"G_GINT64_FORMAT"%"G_GUINT32_FORMAT,
             g_get_monotonic_time(), g_random_int());
+    event->hook = hook;
+    event->hook_data = hook_data;
 
     event_queue = _get_event_queue(conv);
     event_queue = g_list_append(event_queue, event);
@@ -803,7 +809,7 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
     json_object_set_string_member(content, "msgtype", type_string);
     json_object_set_string_member(content, "body", message_to_send);
 
-    _enqueue_event(conv, "m.room.message", content);
+    _enqueue_event(conv, "m.room.message", content, NULL, NULL);
     json_object_unref(content);
 
     purple_conv_chat_write(chat, _get_my_display_name(conv),
