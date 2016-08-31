@@ -742,6 +742,43 @@ MatrixApiRequestData *matrix_api_leave_room(MatrixConnectionData *conn,
     return fetch_data;
 }
 
+/**
+ * Upload a file
+ *
+ * @param conn             The connection with which to make the request
+ * @param ctype            Content type of file
+ * @param data             Raw data content of file
+ * @param data_len         Length of the data
+ * @param callback         Function to be called when the request completes
+ * @param user_data        Opaque data to be passed to the callback
+ */
+MatrixApiRequestData *matrix_api_upload_file(MatrixConnectionData *conn,
+        const gchar *ctype, const gchar *data, gsize data_len,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url, *extra_header;
+    MatrixApiRequestData *fetch_data;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "/_matrix/media/r0/upload");
+    g_string_append(url, "/join?access_token=");
+    g_string_append(url, purple_url_encode(conn->access_token));
+
+    extra_header = g_string_new("Content-Type: ");
+    g_string_append(extra_header, ctype);
+    g_string_append(extra_header, "\r\n");
+
+    fetch_data = matrix_api_start_full(url->str, "POST", extra_header->str, "",
+            data, data_len, conn,
+            callback, error_callback, bad_response_callback, user_data, 0);
+    g_string_free(url, TRUE);
+    g_string_free(extra_header, TRUE);
+
+    return fetch_data;
+}
 
 #if 0
 MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
