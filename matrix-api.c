@@ -393,7 +393,8 @@ static void _parse_url(const gchar *url, const gchar **host, const gchar **path)
  *  @returns a GString* which should be freed
  */
 static GString *_build_request(PurpleAccount *acct, const gchar *url,
-        const gchar *method, const gchar *body,
+        const gchar *method, const gchar *extra_headers,
+        const gchar *body,
         const gchar *extra_data, gsize extra_len)
 {
     PurpleProxyInfo *gpi = purple_proxy_get_setup(acct);
@@ -421,6 +422,8 @@ static GString *_build_request(PurpleAccount *acct, const gchar *url,
     g_string_append_printf(request_str, "Host: %.*s\r\n",
             (int)(url_path-url_host), url_host);
 
+    if (extra_headers != NULL)
+        g_string_append(request_str, extra_headers);
     g_string_append(request_str, "Connection: close\r\n");
     g_string_append_printf(request_str, "Content-Length: %" G_GSIZE_FORMAT "\r\n",
             extra_len + (body == NULL ? 0 : strlen(body)));
@@ -443,6 +446,7 @@ static GString *_build_request(PurpleAccount *acct, const gchar *url,
  * Start an HTTP call to the API
  *
  * @param method      HTTP method (eg "GET")
+ * @param extra_headers  Extra HTTP headers to add
  * @param body        body of request, or NULL if none
  * @param extra_data  raw binary data to be sent after the body
  * @param extra_len   The length of the raw binary data
@@ -454,7 +458,8 @@ static GString *_build_request(PurpleAccount *acct, const gchar *url,
  *   been called already.
  */
 static MatrixApiRequestData *matrix_api_start_full(const gchar *url,
-        const gchar *method, const gchar *body,
+        const gchar *method, const gchar *extra_headers,
+        const gchar *body,
         const gchar *extra_data, gsize extra_len,
         MatrixConnectionData *conn,
         MatrixApiCallback callback, MatrixApiErrorCallback error_callback,
@@ -480,8 +485,8 @@ static MatrixApiRequestData *matrix_api_start_full(const gchar *url,
         return NULL;
     }
 
-    request = _build_request(conn->pc->account, url, method, body,
-                             extra_data, extra_len);
+    request = _build_request(conn->pc->account, url, method, extra_headers,
+                             body, extra_data, extra_len);
 
     if(purple_debug_is_unsafe())
         purple_debug_info("matrixprpl", "request %s\n", request->str);
@@ -534,7 +539,7 @@ static MatrixApiRequestData *matrix_api_start(const gchar *url,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data, gssize max_len)
 {
-    return matrix_api_start_full(url, method, body, NULL, 0, conn,
+    return matrix_api_start_full(url, method, NULL, body, NULL, 0, conn,
             callback, error_callback, bad_response_callback,
             user_data, max_len);
 }
