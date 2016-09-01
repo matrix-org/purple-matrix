@@ -230,7 +230,6 @@ static char *matrixprpl_get_cb_real_name(PurpleConnection *gc, int id,
 }
 
 
-
 /******************************************************************************
  *
  * prpl stuff. see prpl.h for more information.
@@ -238,7 +237,8 @@ static char *matrixprpl_get_cb_real_name(PurpleConnection *gc, int id,
 
 static PurplePluginProtocolInfo prpl_info =
 {
-    OPT_PROTO_UNIQUE_CHATNAME | OPT_PROTO_CHAT_TOPIC,    /* options */
+    OPT_PROTO_UNIQUE_CHATNAME | OPT_PROTO_CHAT_TOPIC |
+      OPT_PROTO_IM_IMAGE,    /* options */
     NULL,               /* user_splits, initialized in matrixprpl_init() */
     NULL,               /* protocol_options, initialized in matrixprpl_init() */
     {   /* icon_spec, a PurpleBuddyIconSpec */
