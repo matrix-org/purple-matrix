@@ -227,6 +227,26 @@ MatrixApiRequestData *matrix_api_leave_room(MatrixConnectionData *conn,
         gpointer user_data);
 
 
+/**
+ * Upload a file
+ *
+ * @param conn             The connection with which to make the request
+ * @param ctype            Content type of file
+ * @param data             Raw data content of file
+ * @param data_len         Length of the data
+ * @param callback         Function to be called when the request completes
+ * @param user_data        Opaque data to be passed to the callback
+ */
+MatrixApiRequestData *matrix_api_upload_file(MatrixConnectionData *conn,
+        const gchar *ctype,
+        const gchar *data,
+        gsize data_len,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
+
 #if 0
 /**
  * Get the current state of a room
