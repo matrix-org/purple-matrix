@@ -497,8 +497,10 @@ static void _send_image_hook(MatrixRoomEvent *event, gboolean just_free)
                            _image_upload_complete,
                            _image_upload_error,
                            _image_upload_bad_response, sied);
-    purple_conversation_set_data(sied->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
-            fetch_data);
+    if (fetch_data) {
+        purple_conversation_set_data(sied->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
+                fetch_data);
+    }
 }
 
 
