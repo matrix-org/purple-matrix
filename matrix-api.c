@@ -28,6 +28,7 @@
 /* libpurple */
 #include <debug.h>
 #include <ntlm.h>
+#include <libpurple/version.h>
 
 #include "libmatrix.h"
 #include "matrix-json.h"
@@ -456,6 +457,7 @@ static GString *_build_request(PurpleAccount *acct, const gchar *url,
  * @returns handle for the request, or NULL if the request couldn't be started
  *   (eg, invalid hostname). In this case, the error_callback will have
  *   been called already.
+ * Note: extra_data/extra_len is only available on libpurple >=2.11.0
  */
 static MatrixApiRequestData *matrix_api_start_full(const gchar *url,
         const gchar *method, const gchar *extra_headers,
@@ -485,6 +487,16 @@ static MatrixApiRequestData *matrix_api_start_full(const gchar *url,
         return NULL;
     }
 
+#if !PURPLE_VERSION_CHECK(2,11,0)
+    if (extra_len) {
+        gchar *error_msg;
+        error_msg = g_strdup_printf(_("Feature not available on old purple version"));
+        error_callback(conn, user_data, error_msg);
+        g_free(error_msg);
+        return NULL;
+    }
+#endif
+
     request = _build_request(conn->pc->account, url, method, extra_headers,
                              body, extra_data, extra_len);
 
@@ -499,11 +511,19 @@ static MatrixApiRequestData *matrix_api_start_full(const gchar *url,
     data->bad_response_callback = bad_response_callback;
     data->user_data = user_data;
 
+#if PURPLE_VERSION_CHECK(2,11,0)
     purple_data = purple_util_fetch_url_request_data_len_with_account(
             conn -> pc -> account,
             url, FALSE, NULL, TRUE, request->str, request->len,
             TRUE, max_len, matrix_api_complete,
             data);
+#else
+    purple_data = purple_util_fetch_url_request_len_with_account(
+            conn -> pc -> account,
+            url, FALSE, NULL, TRUE, request->str, TRUE,
+            max_len, matrix_api_complete,
+            data);
+#endif
 
     if(purple_data == NULL) {
         /* we couldn't start the request. In this case, our callback will
