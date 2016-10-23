@@ -987,8 +987,8 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
     JsonObject *content;
     PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
     const char *type_string = "m.text";
-    const gchar *message_to_send = message;
     const char *image_start, *image_end;
+    gchar *message_to_send;
     GData *image_attribs;
 
     /* Matrix doesn't have messages that have both images and text in, so
@@ -1020,9 +1020,14 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
         return;
     }
 
-    if (!strncmp(message, "/me ", 4)) {
+    /* Matrix messages are JSON-encoded, so there's no need to HTML/XML-
+     * escape the message body. Matrix clients don't unescape the bodies
+     * either, so they end up seeing &quot; instead of "
+     */
+    message_to_send = purple_unescape_html(message);
+
+    if (purple_message_meify(message_to_send, -1)) {
         type_string = "m.emote";
-        message_to_send = message + 4;
     }
 
     content = json_object_new();
@@ -1034,4 +1039,5 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
 
     purple_conv_chat_write(chat, _get_my_display_name(conv),
             message, PURPLE_MESSAGE_SEND, g_get_real_time()/1000/1000);
+    g_free(message_to_send);
 }
