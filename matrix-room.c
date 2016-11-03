@@ -298,7 +298,8 @@ static GList *_get_event_queue(PurpleConversation *conv)
 }
 
 static void _event_send_complete(MatrixConnectionData *account, gpointer user_data,
-      JsonNode *json_root)
+      JsonNode *json_root,
+      const char *raw_body, size_t raw_body_len, const char *content_type)
 {
     PurpleConversation *conv = user_data;
     JsonObject *response_object;
@@ -364,7 +365,8 @@ struct SendImageEventData {
  * we put in the event.
  */
 static void _image_upload_complete(MatrixConnectionData *ma,
-      gpointer user_data, JsonNode *json_root)
+      gpointer user_data, JsonNode *json_root,
+      const char *raw_body, size_t raw_body_len, const char *content_type)
 {
     MatrixApiRequestData *fetch_data = NULL;
     struct SendImageEventData *sied = user_data;

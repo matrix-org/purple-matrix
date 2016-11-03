@@ -104,7 +104,8 @@ void _sync_bad_response(MatrixConnectionData *ma, gpointer user_data,
 
 /* callback which is called when a /sync request completes */
 static void _sync_complete(MatrixConnectionData *ma, gpointer user_data,
-    JsonNode *body)
+    JsonNode *body,
+    const char *raw_body, size_t raw_body_len, const char *content_type)
 {
     PurpleConnection *pc = ma->pc;
     const gchar *next_batch;
@@ -159,7 +160,8 @@ static gboolean _account_has_active_conversations(PurpleAccount *account)
 
 static void _login_completed(MatrixConnectionData *conn,
         gpointer user_data,
-        JsonNode *json_root)
+        JsonNode *json_root,
+        const char *raw_body, size_t raw_body_len, const char *content_type)
 {
     PurpleConnection *pc = conn->pc;
     JsonObject *root_obj;
@@ -237,7 +239,8 @@ void matrix_connection_start_login(PurpleConnection *pc)
 
 static void _join_completed(MatrixConnectionData *conn,
         gpointer user_data,
-        JsonNode *json_root)
+        JsonNode *json_root,
+        const char *raw_body, size_t raw_body_len, const char *content_type)
 {
     GHashTable *components = user_data;
     JsonObject *root_obj;

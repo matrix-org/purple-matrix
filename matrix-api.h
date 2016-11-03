@@ -55,10 +55,17 @@ typedef struct _MatrixApiRequestData MatrixApiRequestData;
  * @param json_root     NULL if there was no body, or it could not be
  *                          parsed as JSON; otherwise the root of the JSON
  *                          tree in the response
+ * @param body          NULL if the body was parsable as JSON, else the raw
+ *                          body.
+ * @param body_len      The length of the body (valid when body is)
+ *
+ * @param content_type  The content type of the body
  */
 typedef void (*MatrixApiCallback)(MatrixConnectionData *conn,
                                   gpointer user_data,
-                                  struct _JsonNode *json_root);
+                                  struct _JsonNode *json_root,
+                                  const char *body,
+                                  size_t body_len, const char *content_type);
 
 /**
  * Signature for functions which are called when there is an error calling the

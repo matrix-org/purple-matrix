@@ -105,17 +105,18 @@ typedef struct {
     gchar *content_type;
     gboolean got_headers;
     JsonParser *json_parser;
+    const char *body;
+    size_t body_len;
 } MatrixApiResponseParserData;
 
 
 /** create a MatrixApiResponseParserData */
 static MatrixApiResponseParserData *_response_parser_data_new()
 {
-    MatrixApiResponseParserData *res = g_new(MatrixApiResponseParserData, 1);
+    MatrixApiResponseParserData *res = g_new0(MatrixApiResponseParserData, 1);
     res->header_parsing_state = HEADER_PARSING_STATE_LAST_WAS_VALUE;
     res->current_header_name = g_string_new("");
     res->current_header_value = g_string_new("");
-    res->content_type = NULL;
     res->json_parser = json_parser_new();
     return res;
 }
@@ -221,6 +222,12 @@ static int _handle_body(http_parser *http_parser, const char *at,
             g_error_free(err);
             return 1;
         }
+    } else {
+        /* Well if it's not JSON perhaps the callback is expecting to
+         * handle it itself, e.g. for an image.
+         */
+        response_data->body = at;
+        response_data->body_len = length;
     }
     return 0;
 }
@@ -306,7 +313,9 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
         (data->bad_response_callback)(data->conn, data->user_data,
                 response_code, root);
     } else if (data->callback) {
-        (data->callback)(data->conn, data->user_data, root);
+        (data->callback)(data->conn, data->user_data, root,
+                         response_data->body, response_data->body_len,
+                         response_data->content_type );
     }
 
     _response_parser_data_free(response_data);
