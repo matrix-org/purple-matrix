@@ -19,6 +19,7 @@
 #include "matrix-room.h"
 
 /* stdlib */
+#include <inttypes.h>
 #include <string.h>
 
 /* libpurple */
@@ -35,6 +36,7 @@
 
 static gchar *_get_room_name(MatrixConnectionData *conn,
         PurpleConversation *conv);
+static const gchar *_get_my_display_name(PurpleConversation *conv);
 
 static MatrixConnectionData *_get_connection_data_from_conversation(
         PurpleConversation *conv)
@@ -67,6 +69,8 @@ static MatrixConnectionData *_get_connection_data_from_conversation(
 #define PURPLE_CONV_FLAGS "flags"
 #define PURPLE_CONV_FLAG_NEEDS_NAME_UPDATE 0x1
 
+/* Arbitrary limit on the size of an image to receive; should make configurable */
+static const size_t purple_max_image_size=250*1024;
 
 /**
  * Get the member table for a room
@@ -446,6 +450,17 @@ static const char *type_guess(PurpleStoredImage *image)
     }
 }
 
+/**
+ * Check if the declared content-type is an image type we recognise.
+ */
+static gboolean is_known_image_type(const char *content_type)
+{
+    return !strcmp(content_type, "image/png") ||
+           !strcmp(content_type, "image/jpeg") ||
+           !strcmp(content_type, "image/gif") ||
+           !strcmp(content_type, "image/tiff");
+}
+
 /* Structure hung off the event and used by _send_image_hook */
 struct SendImageHookData {
     PurpleConversation *conv;
@@ -505,6 +520,145 @@ static void _send_image_hook(MatrixRoomEvent *event, gboolean just_free)
     }
 }
 
+/* Passed through matrix_api_download_file all the way
+ * downto _image_download_complete
+ */
+struct ReceiveImageData {
+    PurpleConversation *conv;
+    gint64 timestamp;
+    const gchar *room_id;
+    const gchar *sender_display_name;
+    gchar *original_body;
+};
+
+static void _image_download_complete(MatrixConnectionData *ma,
+          gpointer user_data, JsonNode *json_root,
+          const char *raw_body, size_t raw_body_len, const char *content_type)
+{
+    struct ReceiveImageData *rid = user_data;
+    if (is_known_image_type(content_type)) {
+        /* Excellent - something to work with */
+        int img_id = purple_imgstore_add_with_id(g_memdup(raw_body, raw_body_len),
+                                                 raw_body_len, NULL);
+        serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id), rid->sender_display_name,
+                PURPLE_MESSAGE_RECV | PURPLE_MESSAGE_IMAGES,
+                g_strdup_printf("<IMG ID=\"%d\">", img_id), rid->timestamp / 1000);
+    } else {
+        serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
+                rid->sender_display_name, PURPLE_MESSAGE_RECV,
+                g_strdup_printf("%s (unknown type %s)",
+                        rid->original_body, content_type), rid->timestamp / 1000);
+    }
+    purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
+            NULL);
+    g_free(rid->original_body);
+    g_free(rid);
+}
+
+static void _image_download_bad_response(MatrixConnectionData *ma, gpointer user_data,
+                int http_response_code, JsonNode *json_root)
+{
+    struct ReceiveImageData *rid = user_data;
+    serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
+            rid->sender_display_name, PURPLE_MESSAGE_RECV,
+            g_strdup_printf("%s (failed to download %d)",
+                    rid->original_body, http_response_code),
+                    rid->timestamp / 1000);
+    purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
+            NULL);
+    g_free(rid->original_body);
+    g_free(rid);
+}
+
+static void _image_download_error(MatrixConnectionData *ma, gpointer user_data,
+                const gchar *error_message)
+{
+    struct ReceiveImageData *rid = user_data;
+    serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
+            rid->sender_display_name, PURPLE_MESSAGE_RECV,
+            g_strdup_printf("%s (failed to download %s)",
+                    rid->original_body, error_message), rid->timestamp / 1000);
+    purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
+            NULL);
+    g_free(rid->original_body);
+    g_free(rid);
+}
+
+
+/*
+ * Called from matrix_room_handle_timeline_event when it finds an m.image;
+ * msg_body has the fallback text,
+ * json_content_object has the json for the content sub object
+ *
+ * Return TRUE if we managed to download the image and everything needed
+ *        FALSE if we failed; caller does fallback.
+ */
+static gboolean _handle_incoming_image(PurpleConversation *conv,
+        const gint64 timestamp, const gchar *room_id,
+        const gchar *sender_display_name, const gchar *msg_body,
+        JsonObject *json_content_object) {
+    MatrixConnectionData *conn = _get_connection_data_from_conversation(conv);
+    MatrixApiRequestData *fetch_data = NULL;
+    struct ReceiveImageData *rid;
+
+    const gchar *url;
+    JsonObject *json_info_object;
+
+    url = matrix_json_object_get_string_member(json_content_object, "url");
+    if (!url) {
+        /* That seems odd, oh well, no point in getting upset */
+        purple_debug_info("matrixprpl", "failed to get url for m.image");
+        return FALSE;
+    }
+
+    /* the 'info' member is optional but if we've got it we can check it to early
+     * reject the image if it's something that's huge or we don't know the title.
+     */
+    json_info_object = matrix_json_object_get_object_member(json_content_object,
+            "info");
+    purple_debug_info("matrixprpl", "%s: %s json_info_object=%p\n", __func__,
+            url, json_info_object);
+    if (json_info_object) {
+        guint64 size;
+        const gchar *mime_type;
+
+        /* OK, we've got some (optional) info on the image */
+        size = matrix_json_object_get_int_member(json_info_object, "size");
+        if (size > purple_max_image_size) {
+            purple_debug_info("matrixprpl", "image too large %" PRId64 "\n", size);
+            /* TODO: Switch to a thumbnail */
+            return FALSE;
+        }
+        mime_type = matrix_json_object_get_string_member(json_info_object,
+                        "mimetype");
+        if (mime_type) {
+            if (!is_known_image_type(mime_type)) {
+                purple_debug_info("matrixprpl", "%s: unknown mimetype %s",
+                        __func__, mime_type);
+                return FALSE;
+            }
+        }
+        purple_debug_info("matrixprpl", "image info good: %s of %" PRId64,
+                          mime_type, size);
+    }
+
+    rid = g_new0(struct ReceiveImageData, 1);
+    rid->conv = conv;
+    rid->timestamp = timestamp;
+    rid->sender_display_name = sender_display_name;
+    rid->room_id = room_id;
+    rid->original_body = g_strdup(msg_body);
+
+    fetch_data = matrix_api_download_file(conn, url, purple_max_image_size,
+            _image_download_complete,
+            _image_download_error,
+            _image_download_bad_response, rid);
+
+    purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
+            fetch_data);
+
+    return fetch_data != NULL;
+}
 
 /**
  * send the next queued event, provided the connection isn't shutting down.
@@ -673,6 +827,12 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
 
     if (!strcmp(msg_type, "m.emote")) {
         tmp_body = g_strdup_printf("/me %s", msg_body);
+    } else if (!strcmp(msg_type, "m.image")) {
+        if (_handle_incoming_image(conv, timestamp, room_id, sender_display_name,
+                    msg_body, json_content_obj)) {
+            return;
+        }
+        /* Fall through - we couldn't get the image, treat as text */
     }
     flags = PURPLE_MESSAGE_RECV;
 
