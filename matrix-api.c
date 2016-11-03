@@ -784,7 +784,7 @@ MatrixApiRequestData *matrix_api_upload_file(MatrixConnectionData *conn,
 
     url = g_string_new(conn->homeserver);
     g_string_append(url, "/_matrix/media/r0/upload");
-    g_string_append(url, "/join?access_token=");
+    g_string_append(url, "?access_token=");
     g_string_append(url, purple_url_encode(conn->access_token));
 
     extra_header = g_string_new("Content-Type: ");
