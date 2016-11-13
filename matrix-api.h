@@ -277,6 +277,34 @@ MatrixApiRequestData *matrix_api_download_file(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+/**
+ * Download a thumbnail for a file
+ *
+ * @param conn             The connection with which to make the request
+ * @param uri              The Matrix uri to fetch starting mxc://
+ * @param max_size         A maximum size of file to receive.
+ * @param width            Desired width; the server might not obey
+ * @param height           Desired height; the server might not obey
+ * @param scale            True to scale, false to crop
+ * @param callback         Function to be called when the request completes
+ * @param error_callback   Function to be called if there is an error making
+ *                             the request. If NULL, matrix_api_error will be
+ *                             used.
+ * @param bad_response_callback Function to be called if the API gives a non-200
+ *                            response. If NULL, matrix_api_bad_response will be
+ *                            used.
+ * @param user_data        Opaque data to be passed to the callbacks
+ *
+ */
+MatrixApiRequestData *matrix_api_download_thumb(MatrixConnectionData *conn,
+        const gchar *uri,
+        gsize max_size,
+        unsigned int width, unsigned int height, gboolean scale,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
 #if 0
 /**
  * Get the current state of a room

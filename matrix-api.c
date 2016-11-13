@@ -846,6 +846,48 @@ MatrixApiRequestData *matrix_api_download_file(MatrixConnectionData *conn,
     return fetch_data;
 }
 
+/**
+ * Download a thumbnail for a file
+ * @param uri       URI string in the form mxc://example.com/unique
+ */
+MatrixApiRequestData *matrix_api_download_thumb(MatrixConnectionData *conn,
+        const gchar *uri,
+        gsize max_size,
+        unsigned int width, unsigned int height, gboolean scale,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+    char tmp[64];
+
+    /* Sanity check the uri - TODO: Add more sanity */
+    if (strncmp(uri, "mxc://", 6)) {
+        error_callback(conn, user_data, "bad media uri");
+        return NULL;
+    }
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "_matrix/media/r0/thumbnail/");
+    g_string_append(url, uri + 6); /* i.e. after the mxc:// */
+    sprintf(tmp, "?width=%u", width);
+    g_string_append(url, tmp);
+    sprintf(tmp, "&height=%u", height);
+    g_string_append(url, tmp);
+    g_string_append(url, scale ? "&method=scale": "&method=crop");
+
+    /* I'd like to validate the headers etc a bit before downloading the
+     * data (maybe using _handle_header_completed), also I'm not convinced
+     * purple always does sane things on over-size.
+     */
+    fetch_data = matrix_api_start(url->str, "GET", NULL, conn, callback,
+            error_callback, bad_response_callback, user_data, max_size);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
+}
+
 #if 0
 MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
         const gchar *room_id,
