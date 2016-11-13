@@ -600,6 +600,7 @@ static gboolean _handle_incoming_image(PurpleConversation *conv,
     MatrixConnectionData *conn = _get_connection_data_from_conversation(conv);
     MatrixApiRequestData *fetch_data = NULL;
     struct ReceiveImageData *rid;
+    gboolean use_thumb = FALSE;
 
     const gchar *url;
     JsonObject *json_info_object;
@@ -625,9 +626,7 @@ static gboolean _handle_incoming_image(PurpleConversation *conv,
         /* OK, we've got some (optional) info on the image */
         size = matrix_json_object_get_int_member(json_info_object, "size");
         if (size > purple_max_image_size) {
-            purple_debug_info("matrixprpl", "image too large %" PRId64 "\n", size);
-            /* TODO: Switch to a thumbnail */
-            return FALSE;
+            use_thumb = TRUE;
         }
         mime_type = matrix_json_object_get_string_member(json_info_object,
                         "mimetype");
@@ -649,10 +648,26 @@ static gboolean _handle_incoming_image(PurpleConversation *conv,
     rid->room_id = room_id;
     rid->original_body = g_strdup(msg_body);
 
-    fetch_data = matrix_api_download_file(conn, url, purple_max_image_size,
-            _image_download_complete,
-            _image_download_error,
-            _image_download_bad_response, rid);
+    if (!use_thumb) {
+            fetch_data = matrix_api_download_file(conn, url,
+                    purple_max_image_size,
+                    _image_download_complete,
+                    _image_download_error,
+                    _image_download_bad_response, rid);
+    } else {
+            /* TODO: Configure the size of thumbnails, and provide
+             * a way for the user to get the full image if they want.
+             * 640x480 is a good a width as any and reasonably likely to
+             * fit in the byte size limit unless someone has a big long
+             * tall png.
+             */
+            fetch_data = matrix_api_download_thumb(conn, url,
+                    purple_max_image_size,
+                    640, 480, TRUE, /* Scaled */
+                    _image_download_complete,
+                    _image_download_error,
+                    _image_download_bad_response, rid);
+    }
 
     purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
             fetch_data);
