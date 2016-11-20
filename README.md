@@ -17,8 +17,7 @@ The following are not yet supported:
  * Joining existing rooms by alias instead of room_id
  * Presence indication
  * Typing indication
- * Videos/images/rich text in messages
- * File uploads
+ * Videos/rich text in messages
  * Account registration
  * Room topics
  * Voice/video calling

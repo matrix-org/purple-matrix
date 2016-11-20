@@ -105,17 +105,18 @@ typedef struct {
     gchar *content_type;
     gboolean got_headers;
     JsonParser *json_parser;
+    const char *body;
+    size_t body_len;
 } MatrixApiResponseParserData;
 
 
 /** create a MatrixApiResponseParserData */
 static MatrixApiResponseParserData *_response_parser_data_new()
 {
-    MatrixApiResponseParserData *res = g_new(MatrixApiResponseParserData, 1);
+    MatrixApiResponseParserData *res = g_new0(MatrixApiResponseParserData, 1);
     res->header_parsing_state = HEADER_PARSING_STATE_LAST_WAS_VALUE;
     res->current_header_name = g_string_new("");
     res->current_header_value = g_string_new("");
-    res->content_type = NULL;
     res->json_parser = json_parser_new();
     return res;
 }
@@ -221,6 +222,12 @@ static int _handle_body(http_parser *http_parser, const char *at,
             g_error_free(err);
             return 1;
         }
+    } else {
+        /* Well if it's not JSON perhaps the callback is expecting to
+         * handle it itself, e.g. for an image.
+         */
+        response_data->body = at;
+        response_data->body_len = length;
     }
     return 0;
 }
@@ -306,7 +313,9 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
         (data->bad_response_callback)(data->conn, data->user_data,
                 response_code, root);
     } else if (data->callback) {
-        (data->callback)(data->conn, data->user_data, root);
+        (data->callback)(data->conn, data->user_data, root,
+                         response_data->body, response_data->body_len,
+                         response_data->content_type );
     }
 
     _response_parser_data_free(response_data);
@@ -784,7 +793,7 @@ MatrixApiRequestData *matrix_api_upload_file(MatrixConnectionData *conn,
 
     url = g_string_new(conn->homeserver);
     g_string_append(url, "/_matrix/media/r0/upload");
-    g_string_append(url, "/join?access_token=");
+    g_string_append(url, "?access_token=");
     g_string_append(url, purple_url_encode(conn->access_token));
 
     extra_header = g_string_new("Content-Type: ");
@@ -796,6 +805,43 @@ MatrixApiRequestData *matrix_api_upload_file(MatrixConnectionData *conn,
             callback, error_callback, bad_response_callback, user_data, 0);
     g_string_free(url, TRUE);
     g_string_free(extra_header, TRUE);
+
+    return fetch_data;
+}
+
+/**
+ * Download a file
+ * @param uri       URI string in the form mxc://example.com/unique
+ */
+MatrixApiRequestData *matrix_api_download_file(MatrixConnectionData *conn,
+        const gchar *uri,
+        gsize max_size,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+
+    /* Sanity check the uri - TODO: Add more sanity */
+    if (strncmp(uri, "mxc://", 6)) {
+        error_callback(conn, user_data, "bad media uri");
+        return NULL;
+    }
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "/_matrix/media/r0/download/");
+    g_string_append(url, uri + 6); /* i.e. after the mxc:// */
+    g_string_append(url, "?access_token=");
+    g_string_append(url, purple_url_encode(conn->access_token));
+
+    /* I'd like to validate the headers etc a bit before downloading the
+     * data (maybe using _handle_header_completed), also I'm not convinced
+     * purple always does sane things on over-size.
+     */
+    fetch_data = matrix_api_start(url->str, "GET", NULL, conn, callback,
+            error_callback, bad_response_callback, user_data, max_size);
+    g_string_free(url, TRUE);
 
     return fetch_data;
 }
