@@ -2,8 +2,8 @@
 
 COMPILE.c = $(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c
 
-CFLAGS+=-Wall -g -O0 -Werror
-CFLAGS += -DPURPLE_PLUGINS 
+EXTRA_CFLAGS ?= -Wall -g -O0 -Werror
+CFLAGS += -DPURPLE_PLUGINS $(EXTRA_CFLAGS)
 
 # generate .d files when compiling
 CPPFLAGS += -MMD
