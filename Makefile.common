@@ -8,6 +8,10 @@ CFLAGS += -DPURPLE_PLUGINS
 # generate .d files when compiling
 CPPFLAGS += -MMD
 
+ifdef MATRIX_NO_E2E
+CFLAGS+=-DMATRIX_NO_E2E
+endif
+
 OBJECTS = libmatrix.o matrix-api.o matrix-connection.o \
     matrix-event.o \
     matrix-json.o \
