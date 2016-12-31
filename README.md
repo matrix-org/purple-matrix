@@ -12,7 +12,6 @@ implemented. Sending and receiving simple text messages is supported, as is
 joining rooms you are invited to by other users.
 
 The following are not yet supported:
- * Sending invitations
  * Creating new rooms (and one-to-one chats)
  * Joining existing rooms by alias instead of room_id
  * Presence indication

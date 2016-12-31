@@ -717,6 +717,47 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
     return fetch_data;
 }
 
+void matrix_api_invite_user(MatrixConnectionData *conn,
+        const gchar *room_id,
+        const gchar *who,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    JsonNode *body_node;
+    JsonGenerator *generator;
+    gchar *json;
+
+    JsonObject *invitee;
+    invitee = json_object_new();
+    json_object_set_string_member(invitee, "user_id", who);
+
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "_matrix/client/r0/rooms/");
+    g_string_append(url, purple_url_encode(room_id));
+    g_string_append(url, "/invite?access_token=");
+    g_string_append(url, purple_url_encode(conn->access_token));
+
+    body_node = json_node_new(JSON_NODE_OBJECT);
+    json_node_set_object(body_node, invitee);
+
+    generator = json_generator_new();
+    json_generator_set_root(generator, body_node);
+    json = json_generator_to_data(generator, NULL);
+    g_object_unref(G_OBJECT(generator));
+    json_node_free(body_node);
+
+    purple_debug_info("matrixprpl", "sending an invite on %s\n", room_id);
+
+    matrix_api_start(url->str, "POST", json, conn, callback,
+            error_callback, bad_response_callback,
+            user_data, 0);
+    g_free(json);
+    g_string_free(url, TRUE);
+    json_object_unref(invitee);
+}
 
 MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
         const gchar *room,

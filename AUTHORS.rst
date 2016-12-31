@@ -7,3 +7,6 @@ Eion Robb <eion at robbmob.com>
 
 Dr. David Alan Gilbert <dave at treblig.org>
  * Sending images, emote handling
+
+Damien Zammit <damien at zamaudio.com>
+ * Invite users
