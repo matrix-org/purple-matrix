@@ -34,6 +34,8 @@
 struct _MatrixE2EData {
     OlmAccount *oa;
     gchar *device_id;
+    gchar *curve25519_pubkey;
+    gchar *ed25519_pubkey;
 };
 
 /* Really clear an area of memory */
@@ -296,6 +298,163 @@ static int get_id_keys(PurpleConnection *pc, OlmAccount *account, gchar ***algor
     return n_keys;
 }
 
+static void key_upload_callback(MatrixConnectionData *conn,
+                                gpointer user_data,
+                                struct _JsonNode *json_root,
+                                const char *body,
+                                size_t body_len, const char *content_type)
+{
+  // TODO
+}
+
+/*
+ * Get a set of device keys for ourselves.  Either by retreiving it from our store
+ * or by generating a new set.
+ *
+ * Returns: 0 on success
+ */
+int matrix_e2e_get_device_keys(MatrixConnectionData *conn, const gchar *device_id)
+{
+    PurpleConnection *pc = conn->pc;
+    JsonObject * json_dev_keys = NULL;
+    OlmAccount *account = olm_account(g_malloc0(olm_account_size()));
+    char *pickled_account = NULL;
+    void *random_pot = NULL;
+    int ret = 0;
+
+    if (!conn->e2e) {
+        conn->e2e = g_new0(MatrixE2EData,1);
+        conn->e2e->device_id = g_strdup(device_id);
+    }
+    conn->e2e->oa = account;
+
+    /* Try and restore olm account from settings; may fail, may work
+     * or may say there were no settings stored.
+     */
+    ret = matrix_restore_e2e_account(conn);
+    purple_debug_info("matrixprpl",
+                      "restore_e2e_account says %d\n", ret);
+    if (ret < 0) {
+        goto out;
+    }
+
+    if (ret == 0) {
+        /* No stored account - create one */
+        size_t needed_random = olm_create_account_random_length(account);
+        random_pot = get_random(needed_random);
+        if (!random_pot) {
+            purple_connection_error_reason(pc,
+                    PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                    "Unable to get randomness");
+            ret = -1;
+            goto out;
+        };
+
+        if (olm_create_account(account, random_pot, needed_random) ==
+            olm_error()) {
+            purple_connection_error_reason(pc,
+                    PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                    olm_account_last_error(account));
+            ret = -1;
+            goto out;
+        }
+        ret = matrix_store_e2e_account(conn);
+        if (ret) {
+            goto out;
+        }
+    }
+
+    /* Form a device keys object for an upload,
+     * from https://matrix.org/speculator/spec/drafts%2Fe2e/client_server/unstable.html#post-matrix-client-unstable-keys-upload
+     */
+    json_dev_keys = json_object_new();
+    json_object_set_string_member(json_dev_keys, "user_id", conn->user_id);
+    json_object_set_string_member(json_dev_keys, "device_id", device_id);
+    /* Add 'algorithms' array - is there a way to get libolm to tell us the list of what's supported */
+    /* the output of olm_account_identity_keys isn't quite right for it */
+    JsonArray *algorithms = json_array_new();
+    json_array_add_string_element(algorithms, "m.olm.curve25519-aes-sha256");
+    json_array_add_string_element(algorithms, "m.megolm.v1.aes-sha");
+    json_object_set_array_member(json_dev_keys, "algorithms", algorithms);
+
+    /* Add 'keys' entry */
+    JsonObject *json_keys = json_object_new();
+    gchar **algorithm_strings, **key_strings;
+    int num_algorithms = get_id_keys(pc, account, &algorithm_strings,
+                                     &key_strings);
+    if (num_algorithms < 1) {
+        json_object_unref(json_keys);
+        goto out;
+    }
+
+    int alg;
+
+    for(alg = 0; alg < num_algorithms; alg++) {
+        GString *algdev = g_string_new(NULL);
+        g_string_printf(algdev, "%s:%s", algorithm_strings[alg], device_id);
+        gchar *alg_dev_char = g_string_free(algdev, FALSE);
+        json_object_set_string_member(json_keys, alg_dev_char,
+                                      key_strings[alg]);
+
+        if (!strcmp(algorithm_strings[alg], "curve25519")) {
+            conn->e2e->curve25519_pubkey = key_strings[alg];
+        } else if (!strcmp(algorithm_strings[alg], "ed25519")) {
+            conn->e2e->ed25519_pubkey = key_strings[alg];
+        } else {
+            g_free(key_strings[alg]);
+        }
+        g_free(algorithm_strings[alg]);
+        g_free(alg_dev_char);
+    }
+    g_free(algorithm_strings);
+    g_free(key_strings);
+    json_object_set_object_member(json_dev_keys, "keys", json_keys);
+
+    /* Sign */
+    if (matrix_sign_json(conn, json_dev_keys)) {
+        goto out;
+    }
+
+    /* Send the keys */
+    matrix_api_upload_keys(conn, json_dev_keys, NULL /* TODO: one time keys */,
+        key_upload_callback,
+        matrix_api_error, matrix_api_bad_response, (void *)0);
+    json_dev_keys = NULL; /* api_upload_keys frees it with it's whole json */
+
+    ret = 0;
+
+out:
+    if (json_dev_keys)
+         json_object_unref(json_dev_keys);
+    g_free(pickled_account);
+    g_free(random_pot);
+
+    if (ret) {
+        matrix_e2e_cleanup_connection(conn);
+    }
+    return ret;
+}
+
+void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
+{
+    if (conn->e2e) {
+        g_free(conn->e2e->curve25519_pubkey);
+        g_free(conn->e2e->oa);
+        g_free(conn->e2e->device_id);
+        g_free(conn->e2e);
+        conn->e2e = NULL;
+    }
+}
+
 #else
 /* ==== Stubs for when e2e is configured out of the build === */
+int matrix_e2e_get_device_keys(MatrixConnectionData *conn, const gchar *device_id)
+{
+    return -1;
+}
+
+void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
+{
+}
+
 #endif
