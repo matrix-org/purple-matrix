@@ -559,13 +559,15 @@ static void _image_download_bad_response(MatrixConnectionData *ma, gpointer user
                 int http_response_code, JsonNode *json_root)
 {
     struct ReceiveImageData *rid = user_data;
+    gchar *escaped_body = purple_markup_escape_text(rid->original_body, -1);
     serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
             rid->sender_display_name, PURPLE_MESSAGE_RECV,
             g_strdup_printf("%s (failed to download %d)",
-                    rid->original_body, http_response_code),
+                    escaped_body, http_response_code),
                     rid->timestamp / 1000);
     purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
             NULL);
+    g_free(escaped_body);
     g_free(rid->original_body);
     g_free(rid);
 }
@@ -574,12 +576,14 @@ static void _image_download_error(MatrixConnectionData *ma, gpointer user_data,
                 const gchar *error_message)
 {
     struct ReceiveImageData *rid = user_data;
+    gchar *escaped_body = purple_markup_escape_text(rid->original_body, -1);
     serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
             rid->sender_display_name, PURPLE_MESSAGE_RECV,
             g_strdup_printf("%s (failed to download %s)",
-                    rid->original_body, error_message), rid->timestamp / 1000);
+                    escaped_body, error_message), rid->timestamp / 1000);
     purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
             NULL);
+    g_free(escaped_body);
     g_free(rid->original_body);
     g_free(rid);
 }
@@ -762,6 +766,7 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     JsonObject *json_unsigned_obj;
     const gchar *room_id, *msg_body, *msg_type;
     gchar *tmp_body = NULL;
+    gchar *escaped_body = NULL;
     PurpleMessageFlags flags;
 
     const gchar *sender_display_name;
@@ -836,12 +841,13 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     }
     flags = PURPLE_MESSAGE_RECV;
 
+    escaped_body = purple_markup_escape_text(tmp_body ? tmp_body : msg_body, -1);
+    g_free(tmp_body);
     purple_debug_info("matrixprpl", "got message from %s in %s\n", sender_id,
             room_id);
     serv_got_chat_in(conv->account->gc, g_str_hash(room_id),
-            sender_display_name, flags, tmp_body ? tmp_body : msg_body,
-            timestamp / 1000);
-    g_free(tmp_body);
+            sender_display_name, flags, escaped_body, timestamp / 1000);
+    g_free(escaped_body);
 }
 
 
