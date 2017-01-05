@@ -36,6 +36,7 @@
 
 #include "matrix-connection.h"
 #include "matrix-room.h"
+#include "matrix-api.h"
 
 /**
  * Called to get the icon name for the given buddy and account.
@@ -178,7 +179,15 @@ static void matrixprpl_reject_chat(PurpleConnection *gc, GHashTable *components)
     matrix_connection_reject_invite(gc, room_id);
 }
 
+static void matrixprpl_chat_invite(PurpleConnection *gc, int id,
+        const char *message, const char *who)
+{
+    PurpleConversation *conv = purple_find_chat(gc, id);
+    MatrixConnectionData *conn;
+    conn = (MatrixConnectionData *)(conv->account->gc->proto_data);
 
+    matrix_api_invite_user(conn, conv->name, who, NULL, NULL, NULL, NULL);
+}
 
 /**
  * handle leaving a chat: notify the server that we are leaving, and
@@ -279,7 +288,7 @@ static PurplePluginProtocolInfo prpl_info =
     matrixprpl_join_chat,                  /* join_chat */
     matrixprpl_reject_chat,                /* reject_chat */
     matrixprpl_get_chat_name,              /* get_chat_name */
-    NULL,                                  /* chat_invite */
+    matrixprpl_chat_invite,                /* chat_invite */
     matrixprpl_chat_leave,                 /* chat_leave */
     NULL,                                  /* chat_whisper */
     matrixprpl_chat_send,                  /* chat_send */

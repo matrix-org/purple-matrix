@@ -189,6 +189,30 @@ MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+/**
+ * Invite a user to a room
+ *
+ * @param conn             The connection with which to make the request
+ * @param room_id          The room id to invite the user to
+ *
+ * @param who              The mxid of the person to invite
+ *
+ * @param callback         Function to be called when the request completes
+ * @param error_callback   Function to be called if there is an error making
+ *                             the request. If NULL, matrix_api_error will be
+ *                             used.
+ * @param bad_response_callback Function to be called if the API gives a non-200
+ *                            response. If NULL, matrix_api_bad_response will be
+ *                            used.
+ * @param user_data        Opaque data to be passed to the callbacks
+ */
+void matrix_api_invite_user(MatrixConnectionData *conn,
+        const gchar *room_id,
+        const gchar *who,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
 
 /**
  * Make a request to join a room
