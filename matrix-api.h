@@ -42,7 +42,11 @@
 
 struct _JsonNode;
 struct _JsonObject;
+struct _JsonParser;
+struct _MatrixApiResponseParserData;
+struct _MatrixApiRequestData;
 
+typedef struct _MatrixApiResponseParserData MatrixApiResponseParserData;
 typedef struct _MatrixApiRequestData MatrixApiRequestData;
 
 /**
@@ -62,6 +66,13 @@ typedef struct _MatrixApiRequestData MatrixApiRequestData;
  * @param content_type  The content type of the body
  */
 typedef void (*MatrixApiCallback)(MatrixConnectionData *conn,
+                                  gpointer user_data,
+                                  struct _JsonNode *json_root,
+                                  const char *body,
+                                  size_t body_len, const char *content_type);
+
+
+void room_join_callback(MatrixConnectionData *conn,
                                   gpointer user_data,
                                   struct _JsonNode *json_root,
                                   const char *body,
@@ -108,9 +119,6 @@ typedef void (*MatrixApiBadResponseCallback)(MatrixConnectionData *conn,
  */
 void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
         int http_response_code, struct _JsonNode *json_root);
-
-
-
 
 
 /**
@@ -257,6 +265,16 @@ MatrixApiRequestData *matrix_api_leave_room(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+/**
+ * Get room_id by room_alias
+ */
+void matrix_api_get_roomid_by_alias(MatrixConnectionData *conn,
+        const char *room_alias,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
 
 /**
  * Upload a file
@@ -343,5 +361,25 @@ MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
         MatrixApiCallback callback,
         gpointer user_data);
 #endif
+
+typedef struct _MatrixApiRequestData {
+    PurpleUtilFetchUrlData *purple_data;
+    MatrixConnectionData *conn;
+    MatrixApiCallback callback;
+    MatrixApiErrorCallback error_callback;
+    MatrixApiBadResponseCallback bad_response_callback;
+    gpointer user_data;
+} MatrixApiRequestData;
+
+typedef struct _MatrixApiResponseParserData {
+    int header_parsing_state;
+    GString *current_header_name;
+    GString *current_header_value;
+    gchar *content_type;
+    gboolean got_headers;
+    struct _JsonParser *json_parser;
+    const char *body;
+    size_t body_len;
+} MatrixApiResponseParserData;
 
 #endif

@@ -32,16 +32,8 @@
 
 #include "libmatrix.h"
 #include "matrix-json.h"
-
-struct _MatrixApiRequestData {
-    PurpleUtilFetchUrlData *purple_data;
-    MatrixConnectionData *conn;
-    MatrixApiCallback callback;
-    MatrixApiErrorCallback error_callback;
-    MatrixApiBadResponseCallback bad_response_callback;
-    gpointer user_data;
-};
-
+#include "matrix-room.h"
+#include "matrix-connection.h"
 
 /**
  * Default callback if there was an error calling the API. We just put the
@@ -63,17 +55,19 @@ void matrix_api_error(MatrixConnectionData *conn, gpointer user_data,
 void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
         int http_response_code, JsonNode *json_root)
 {
-    JsonObject *json_obj;
+    JsonObject *json_obj = NULL;
     const gchar *errcode = NULL, *error = NULL;
     gchar *error_message;
 
-    if(json_root != NULL) {
+    if(json_root) {
         json_obj = matrix_json_node_get_object(json_root);
-        errcode = matrix_json_object_get_string_member(json_obj, "errcode");
-        error = matrix_json_object_get_string_member(json_obj, "error");
+        if (json_obj) {
+            errcode = matrix_json_object_get_string_member(json_obj, "errcode");
+            error = matrix_json_object_get_string_member(json_obj, "error");
+        }
     }
 
-    if(errcode != NULL && error != NULL) {
+    if(errcode && error) {
         error_message = g_strdup_printf("%s: %s: %s",
                 _("Error from home server"), errcode, error);
     } else {
@@ -81,9 +75,7 @@ void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
                 _("Error from home server"), http_response_code);
     }
 
-    purple_connection_error_reason(ma->pc,
-            PURPLE_CONNECTION_ERROR_OTHER_ERROR,
-            error_message);
+    purple_notify_error(ma->pc, "Error", "Error", error_message);
 
     g_free(error_message);
 }
@@ -97,18 +89,6 @@ void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
 
 #define HEADER_PARSING_STATE_LAST_WAS_VALUE 0
 #define HEADER_PARSING_STATE_LAST_WAS_FIELD 1
-
-typedef struct {
-    int header_parsing_state;
-    GString *current_header_name;
-    GString *current_header_value;
-    gchar *content_type;
-    gboolean got_headers;
-    JsonParser *json_parser;
-    const char *body;
-    size_t body_len;
-} MatrixApiResponseParserData;
-
 
 /** create a MatrixApiResponseParserData */
 static MatrixApiResponseParserData *_response_parser_data_new()
@@ -310,8 +290,10 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
     } else if(response_code >= 300) {
         purple_debug_info("matrixprpl", "API gave response %i\n",
                 response_code);
-        (data->bad_response_callback)(data->conn, data->user_data,
-                response_code, root);
+        if (data && data->conn && data->bad_response_callback) {
+            (data->bad_response_callback)(data->conn, data->user_data,
+                    response_code, root);
+        }
     } else if (data->callback) {
         (data->callback)(data->conn, data->user_data, root,
                          response_data->body, response_data->body_len,
@@ -451,7 +433,6 @@ static GString *_build_request(PurpleAccount *acct, const gchar *url,
     return request_str;
 }
 
-
 /**
  * Start an HTTP call to the API
  *
@@ -538,7 +519,7 @@ static MatrixApiRequestData *matrix_api_start_full(const gchar *url,
         /* we couldn't start the request. In this case, our callback will
          * already have been called, which will have freed data.
          */
-        data = NULL;
+        data->purple_data = NULL;
     } else {
         data->purple_data = purple_data;
     }
@@ -671,6 +652,48 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
 }
 
 
+void room_join_callback(MatrixConnectionData *conn,
+                                  gpointer user_data,
+                                  struct _JsonNode *json_root,
+                                  const char *body,
+                                  size_t body_len, const char *content_type)
+{
+    JsonObject *root_obj;
+    const gchar *room_id;
+
+    if (json_root) {
+        root_obj = matrix_json_node_get_object(json_root);
+        room_id = json_object_get_string_member(root_obj, "room_id");
+    }
+    if(room_id) {
+        matrix_connection_join_room(conn->pc, room_id);
+    }
+}
+
+void matrix_api_get_roomid_by_alias(MatrixConnectionData *conn,
+        const char *room_alias,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append_printf(url, "_matrix/client/r0/directory/room/%s",
+            purple_url_encode(room_alias));
+    g_string_append_printf(url, "?access_token=%s",
+            purple_url_encode(conn->access_token));
+
+    purple_debug_info("matrixprpl", "getting room_id from room_alias\n");
+
+    matrix_api_start(url->str, "GET", NULL, conn, callback,
+            error_callback, bad_response_callback,
+            user_data, -1);
+
+    g_string_free(url, TRUE);
+}
+
 MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
         const gchar *room_id, const gchar *event_type, const gchar *txn_id,
         JsonObject *content, MatrixApiCallback callback,
@@ -770,21 +793,20 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
     MatrixApiRequestData *fetch_data;
 
     url = g_string_new(conn->homeserver);
-    g_string_append(url, "_matrix/client/r0/rooms/");
+    g_string_append(url, "_matrix/client/r0/join/");
     g_string_append(url, purple_url_encode(room));
-    g_string_append(url, "/join?access_token=");
+    g_string_append(url, "?access_token=");
     g_string_append(url, purple_url_encode(conn->access_token));
 
     purple_debug_info("matrixprpl", "joining %s\n", room);
 
-    fetch_data = matrix_api_start(url->str, "POST", "{}", conn, callback,
+    fetch_data = matrix_api_start(url->str, "POST", NULL, conn, callback,
             error_callback, bad_response_callback,
-            user_data, 0);
+            user_data, -1);
     g_string_free(url, TRUE);
 
     return fetch_data;
 }
-
 
 MatrixApiRequestData *matrix_api_leave_room(MatrixConnectionData *conn,
         const gchar *room_id,
@@ -804,7 +826,7 @@ MatrixApiRequestData *matrix_api_leave_room(MatrixConnectionData *conn,
 
     purple_debug_info("matrixprpl", "leaving %s\n", room_id);
 
-    fetch_data = matrix_api_start(url->str, "POST", "{}", conn, callback,
+    fetch_data = matrix_api_start(url->str, "POST", NULL, conn, callback,
             error_callback, bad_response_callback,
             user_data, 0);
     g_string_free(url, TRUE);

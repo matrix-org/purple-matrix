@@ -67,7 +67,7 @@ void matrix_connection_cancel_sync(struct _PurpleConnection *pc);
  * start the process for joining a room
  */
 void matrix_connection_join_room(struct _PurpleConnection *pc,
-        const gchar *room, GHashTable *components);
+        const gchar *room);
 
 
 /**
