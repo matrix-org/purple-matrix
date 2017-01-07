@@ -156,7 +156,8 @@ static void matrixprpl_join_chat(PurpleConnection *pc, GHashTable *components)
     conv = purple_find_chat(pc, chat_id);
 
     if (!conv) {
-        matrix_api_get_roomid_by_alias(conn, room_alias, room_join_callback, NULL, NULL, NULL);
+        /* get the room by alias, if possible - join it, otherwise create it */
+        matrix_api_get_roomid_by_alias(conn, room_alias, room_join_callback, NULL, room_create_callback, NULL);
         return;
     }
 

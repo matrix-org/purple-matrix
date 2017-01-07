@@ -652,6 +652,24 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
 }
 
 
+void room_set_public_callback(MatrixConnectionData *conn,
+                                  gpointer user_data,
+                                  struct _JsonNode *json_root,
+                                  const char *body,
+                                  size_t body_len, const char *content_type)
+{
+    JsonObject *root_obj;
+    const gchar *room_id;
+
+    if (json_root) {
+        root_obj = matrix_json_node_get_object(json_root);
+        room_id = json_object_get_string_member(root_obj, "room_id");
+    }
+    if(room_id) {
+        matrix_api_room_set_public(conn, room_id, NULL, NULL, NULL, user_data);
+    }
+}
+
 void room_join_callback(MatrixConnectionData *conn,
                                   gpointer user_data,
                                   struct _JsonNode *json_root,
@@ -668,6 +686,68 @@ void room_join_callback(MatrixConnectionData *conn,
     if(room_id) {
         matrix_connection_join_room(conn->pc, room_id);
     }
+}
+
+void room_create_callback(MatrixConnectionData *conn,
+        gpointer user_data, int http_response_code,
+        struct _JsonNode *json_root)
+{
+    const gchar *errorstr, *errcodestr;
+    JsonObject *root_obj;
+    const gchar *room_alias;
+
+    if (json_root) {
+        root_obj = matrix_json_node_get_object(json_root);
+    }
+    errorstr = json_object_get_string_member(root_obj, "error");
+    errcodestr = json_object_get_string_member(root_obj, "errcode");
+    char roomid[strlen(errorstr) - 20];
+    if (errcodestr && !strcmp(errcodestr, "M_NOT_FOUND")) {
+        snprintf(roomid, strlen(errorstr) - 20, "%s", &errorstr[11]);
+        roomid[strlen(errorstr) - 20] = '\0';
+        room_alias = g_strdup(roomid);
+        matrix_room_create(conn->pc, TRUE, TRUE, room_alias, room_alias, "");
+    } else {
+        purple_notify_error(conn->pc, errcodestr, errcodestr, errorstr);
+    }
+}
+
+MatrixApiRequestData *matrix_api_create_room(MatrixConnectionData *conn,
+        JsonObject *roomdescr,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    JsonNode *body_node;
+    JsonGenerator *generator;
+    MatrixApiRequestData *fetch_data = NULL;
+    gchar *json;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append_printf(url, "_matrix/client/r0/createRoom?access_token=%s",
+            purple_url_encode(conn->access_token));
+
+    body_node = json_node_new(JSON_NODE_OBJECT);
+    json_node_set_object(body_node, roomdescr);
+
+    generator = json_generator_new();
+    json_generator_set_root(generator, body_node);
+    json = json_generator_to_data(generator, NULL);
+    g_object_unref(G_OBJECT(generator));
+    json_node_free(body_node);
+
+    purple_debug_info("matrixprpl", "creating room\n");
+
+    printf("json = %s\n", json);
+    fetch_data = matrix_api_start(url->str, "POST", json, conn, callback,
+            error_callback, bad_response_callback,
+            user_data, -1);
+    g_free(json);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
 }
 
 void matrix_api_get_roomid_by_alias(MatrixConnectionData *conn,
@@ -780,6 +860,32 @@ void matrix_api_invite_user(MatrixConnectionData *conn,
     g_free(json);
     g_string_free(url, TRUE);
     json_object_unref(invitee);
+}
+
+MatrixApiRequestData *matrix_api_room_set_public(MatrixConnectionData *conn,
+        const gchar *room,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "_matrix/client/r0/directory/list/room/");
+    g_string_append(url, purple_url_encode(room));
+    g_string_append(url, "?access_token=");
+    g_string_append(url, purple_url_encode(conn->access_token));
+
+    purple_debug_info("matrixprpl", "setting room %s public\n", room);
+
+    fetch_data = matrix_api_start(url->str, "PUT", "{ \"visibility\" : \"public\" }", conn, callback,
+            error_callback, bad_response_callback,
+            user_data, -1);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
 }
 
 MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,

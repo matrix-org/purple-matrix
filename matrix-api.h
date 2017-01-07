@@ -71,6 +71,9 @@ typedef void (*MatrixApiCallback)(MatrixConnectionData *conn,
                                   const char *body,
                                   size_t body_len, const char *content_type);
 
+void room_create_callback(MatrixConnectionData *conn,
+        gpointer user_data, int http_response_code,
+        struct _JsonNode *json_root);
 
 void room_join_callback(MatrixConnectionData *conn,
                                   gpointer user_data,
@@ -172,6 +175,19 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
         gpointer user_data);
 
 
+MatrixApiRequestData *matrix_api_create_room(MatrixConnectionData *conn,
+        struct _JsonObject *roomdescr,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
+void room_set_public_callback(MatrixConnectionData *conn,
+                                  gpointer user_data,
+                                  struct _JsonNode *json_root,
+                                  const char *body,
+                                  size_t body_len, const char *content_type);
+
 /**
  * Send an event to a room
  *
@@ -243,6 +259,13 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+
+MatrixApiRequestData *matrix_api_room_set_public(MatrixConnectionData *conn,
+        const gchar *room,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
 
 /**
  * Leave a room
