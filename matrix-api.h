@@ -110,8 +110,15 @@ void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
         int http_response_code, struct _JsonNode *json_root);
 
 
-
-
+/**
+ * Get roomid by alias
+ */
+void matrix_api_get_roomid_by_alias(MatrixConnectionData *conn,
+        const char *room_alias,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
 
 /**
  * Cancel a call to an API. This will also call the error_callback
