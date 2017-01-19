@@ -171,6 +171,13 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
         gpointer user_data);
 
 
+MatrixApiRequestData *matrix_api_create_room(MatrixConnectionData *conn,
+        struct _JsonObject *roomdescr,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
 /**
  * Send an event to a room
  *
@@ -242,6 +249,13 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+
+MatrixApiRequestData *matrix_api_room_set_public(MatrixConnectionData *conn,
+        const gchar *room,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
 
 /**
  * Leave a room

@@ -865,6 +865,49 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     g_free(escaped_body);
 }
 
+/**
+ * Callback for after the room is created to tweak it to publically accessible
+ */
+static void room_set_public_callback(MatrixConnectionData *conn,
+                                  gpointer user_data,
+                                  struct _JsonNode *json_root,
+                                  const char *body,
+                                  size_t body_len, const char *content_type)
+{
+    JsonObject *root_obj;
+    const gchar *room_id;
+
+    if (json_root) {
+        root_obj = matrix_json_node_get_object(json_root);
+        room_id = json_object_get_string_member(root_obj, "room_id");
+    }
+    if(room_id) {
+        matrix_api_room_set_public(conn, room_id, NULL, NULL, NULL, user_data);
+    }
+}
+
+void matrix_room_create(PurpleConnection *pc,
+        gboolean public, gboolean federate,
+        const char *room_alias, const char *room_name,
+        const char *topic)
+{
+    JsonObject *room_descr, *mfederate;
+    MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+
+    room_descr = json_object_new();
+    mfederate = json_object_new();
+    json_object_set_boolean_member(mfederate, "m.federate",
+            federate ? TRUE : FALSE);
+    json_object_set_string_member(room_descr, "preset",
+            public ? "public_chat" : "private_chat");
+    json_object_set_string_member(room_descr, "room_alias_name", room_alias);
+    json_object_set_string_member(room_descr, "name", room_name);
+    json_object_set_string_member(room_descr, "topic", topic);
+    json_object_set_object_member(room_descr, "creation_content", mfederate);
+
+    matrix_api_create_room(conn, room_descr, room_set_public_callback, NULL, NULL, NULL);
+}
+
 PurpleConversation *matrix_room_join_conversation(
         PurpleConnection *pc, const gchar *room_id)
 {
