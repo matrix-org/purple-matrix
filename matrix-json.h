@@ -60,5 +60,10 @@ const gchar *matrix_json_array_get_string_element(JsonArray *array,
         guint index);
 
 
+/* Produce a canonicalised string as defined in
+ * https://matrix.org/speculator/spec/drafts%2Fe2e/appendices.html#canonical-json
+ * If 'result' in is NULL a new string is allocated.
+ */
+GString *matrix_canonical_json(JsonObject *object, GString *result);
 
 #endif /* MATRIX_JSON_H_ */
