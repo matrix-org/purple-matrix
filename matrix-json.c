@@ -18,7 +18,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA
  */
 
+#include <stdio.h>
+#include <string.h>
 #include "matrix-json.h"
+
+static GString *canonical_json_node(JsonNode *node, GString *result);
+static GString *canonical_json_object(JsonObject *object, GString *result);
 
 /* node */
 
@@ -127,4 +132,102 @@ const gchar *matrix_json_array_get_string_element(JsonArray *array,
     JsonNode *element;
     element = matrix_json_array_get_element(array, index);
     return matrix_json_node_get_string(element);
+}
+
+static gint canonical_json_sort(gconstpointer a, gconstpointer b)
+{
+    return strcmp((const gchar *)a, (const gchar *)b);
+}
+
+static GString *canonical_json_value(JsonNode *node, GString *result)
+{
+    GType vt = json_node_get_value_type(node);
+    switch (vt) {
+        case G_TYPE_STRING:
+            /* TODO: I'm assuming our strings are nice UTF-8 strings already */
+            result = g_string_append_c(result, '"');
+            result = g_string_append(result, json_node_get_string(node));
+            result = g_string_append_c(result, '"');
+            break;
+
+        default:
+            fprintf(stderr, "%s: Unknown value type %zd\n", __func__,
+                    (size_t)vt);
+            /* TODO: Other value types */
+            g_assert_not_reached();
+    }
+
+    return result;
+}
+
+static GString *canonical_json_array(JsonArray *arr, GString *result)
+{
+    guint nelems, i;
+    result = g_string_append_c(result, '[');
+    nelems = json_array_get_length(arr);
+    for(i = 0; i < nelems; i++) {
+        if (i) result=g_string_append_c(result, ',');
+        result = canonical_json_node(json_array_get_element(arr, i), result);
+    }
+    result = g_string_append_c(result, ']');
+
+    return result;
+}
+
+static GString *canonical_json_node(JsonNode *node, GString *result)
+{
+    switch (json_node_get_node_type(node)) {
+        case JSON_NODE_OBJECT:
+            result = canonical_json_object(json_node_get_object(node), result);
+            break;
+
+        case JSON_NODE_ARRAY:
+            result = canonical_json_array(json_node_get_array(node), result);
+            break;
+
+        case JSON_NODE_VALUE:
+            result = canonical_json_value(node, result);
+            break;
+
+        case JSON_NODE_NULL:
+            result = g_string_append(result, "null");
+            break;
+    }
+    return result;
+}
+
+static GString *canonical_json_object(JsonObject *object, GString *result)
+{
+    gboolean first = TRUE;
+    result = result ? g_string_append_c(result, '{') : g_string_new("{");
+
+    /* This gets an unsorted list of member names */
+    GList *members = json_object_get_members(object);
+    GList *cur;
+
+    members = g_list_sort(members, canonical_json_sort);
+    for(cur=g_list_first(members); cur; cur=g_list_next(cur)) {
+        const gchar *cur_name = cur->data;
+        JsonNode *cur_node  = json_object_get_member(object, cur_name);
+        if (!first) result=g_string_append_c(result, ',');
+        first = FALSE;
+        result = g_string_append_c(result, '"');
+        result = g_string_append(result, cur_name);
+        result = g_string_append_c(result, '"');
+        result = g_string_append_c(result, ':');
+        result = canonical_json_node(cur_node, result);
+    }
+
+    g_list_free(members);
+
+    result = g_string_append_c(result, '}');
+    return result;
+}
+
+/* Produce a canonicalised string as defined in
+ * http://matrix.org/docs/spec/appendices.html#canonical-json
+ */
+GString *matrix_canonical_json(JsonObject *object)
+{
+    return canonical_json_object(object, NULL);
 }
