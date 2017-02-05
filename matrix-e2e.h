@@ -19,6 +19,8 @@
 #ifndef MATRIX_E2E_H
 #define MATRIX_E2E_H
 
+#include "matrix-connection.h"
+
 typedef struct _MatrixE2EData MatrixE2EData;
 
 #endif
