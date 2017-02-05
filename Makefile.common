@@ -13,6 +13,7 @@ CFLAGS+=-DMATRIX_NO_E2E
 endif
 
 OBJECTS = libmatrix.o matrix-api.o matrix-connection.o \
+    matrix-e2e.o \
     matrix-event.o \
     matrix-json.o \
     matrix-room.o \

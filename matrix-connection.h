@@ -29,6 +29,7 @@
 #include <glib.h>
 
 struct _PurpleConnection;
+struct _MatrixE2EData;
 
 typedef struct _MatrixConnectionData {
     struct _PurpleConnection *pc;
@@ -38,6 +39,8 @@ typedef struct _MatrixConnectionData {
 
     /* the active sync request */
     struct _MatrixApiRequestData *active_sync;
+    /* All the end-2-end encryption magic */
+    struct _MatrixE2EData *e2e;
 } MatrixConnectionData;
 
 
