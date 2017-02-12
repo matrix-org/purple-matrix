@@ -22,6 +22,7 @@
 #include "matrix-api.h"
 #include "matrix-e2e.h"
 #include "matrix-json.h"
+#include "debug.h"
 
 /* json-glib */
 #include <json-glib/json-glib.h>
@@ -48,6 +49,25 @@ static void clear_mem(volatile char *data, size_t len)
         data[index] = '\0';
     }
 #endif
+}
+
+/* Returns a pointer to a freshly allocated buffer of 'n' bytes of random data.
+ * If it fails it returns NULL.
+ * TODO: There must be some portable function we can call to do this.
+ */
+static void *get_random(size_t n)
+{
+    FILE *urandom = fopen("/dev/urandom", "rb");
+    if (!urandom) {
+        return NULL;
+    }
+    void *buffer = g_malloc(n);
+    if (fread(buffer, 1, n, urandom) != n) {
+        g_free(buffer);
+        buffer = NULL;
+    }
+    fclose(urandom);
+    return buffer;
 }
 
 /* Sign the JsonObject with olm_account_sign and add it to the object
