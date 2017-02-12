@@ -298,13 +298,64 @@ out:
     return ret;
 }
 
+
+/* Called back when we've successfully uploaded the device keys
+ * we use 'user_data' = 1 to indicate we did an upload of one time
+ * keys.
+ */
 static void key_upload_callback(MatrixConnectionData *conn,
                                 gpointer user_data,
                                 struct _JsonNode *json_root,
                                 const char *body,
                                 size_t body_len, const char *content_type)
 {
-  // TODO
+    gboolean need_to_send = FALSE;
+    gboolean have_count = FALSE;
+    /* e2e guide says send more keys if we have less than half the max */
+    size_t max_keys = olm_account_max_number_of_one_time_keys(conn->e2e->oa);
+    size_t to_create = max_keys;
+    /* The server responds with a count of the one time keys on the server */
+    JsonObject *top_object = matrix_json_node_get_object(json_root);
+    JsonObject *key_counts = matrix_json_object_get_object_member(top_object,
+                                       "one_time_key_counts");
+
+    purple_debug_info("matrixprpl",
+                      "%s: json_root=%p top_object=%p key_counts=%p\n",
+                      __func__, json_root, top_object, key_counts);
+    /* True if it's a response to a key upload */
+    if (user_data) {
+        /* Tell Olm that these one time keys are uploaded */
+        olm_account_mark_keys_as_published(conn->e2e->oa);
+        matrix_store_e2e_account(conn);
+    }
+
+    if (key_counts) {
+        JsonObjectIter iter;
+        const gchar *key_algo;
+        JsonNode *key_count_node;
+        json_object_iter_init(&iter, key_counts);
+        while (json_object_iter_next(&iter, &key_algo, &key_count_node)) {
+            gint64 count = matrix_json_node_get_int(key_count_node);
+            have_count = TRUE;
+            if (count < max_keys / 2) {
+                to_create = max_keys - count;
+                need_to_send = TRUE;
+            }
+            purple_debug_info("matrixprpl", "%s: %s: %ld\n",
+                               __func__, key_algo, count);
+        }
+    }
+
+    /* If there are no counts on the server assume we need to send some */
+    /* TODO: This could be more selective and check for counts of the ones
+     * we care about (perhaps we don't need to loop - just ask for those)
+     */
+    need_to_send |= !have_count;
+
+    if (need_to_send) {
+        // TODO
+        purple_debug_info("matrixprpl", "%s: need to send\n",__func__);
+    }
 }
 
 /*
