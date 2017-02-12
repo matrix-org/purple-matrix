@@ -141,6 +141,83 @@ static int matrix_store_e2e_account(MatrixConnectionData *conn)
     return 0;
 }
 
+/* Retrieve an Olm account from the Purple account data
+ * Returns: 1 on success
+ *          0 on no stored account
+ *          -1 on error
+ */
+static int matrix_restore_e2e_account(MatrixConnectionData *conn)
+{
+    PurpleConnection *pc = conn->pc;
+    gchar *pickled_account = NULL;
+    const char *account_string =  purple_account_get_string(pc->account,
+                    PRPL_ACCOUNT_OPT_OLM_ACCOUNT_KEYS, NULL);
+    int ret = -1;
+    if (!account_string || !*account_string) {
+        return 0;
+    }
+    /* Deal with existing account string */
+    JsonParser *json_parser = json_parser_new();
+    const gchar *retrieved_device_id, *retrieved_hs, *retrieved_pickle;
+    GError *err = NULL;
+    if (!json_parser_load_from_data(json_parser,
+            account_string, strlen(account_string),
+            &err)) {
+        purple_connection_error_reason(pc,
+                PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                "Failed to parse stored account key");
+        purple_debug_info("matrixprpl",
+                "unable to parse account JSON: %s",
+                err->message);
+        g_error_free(err);
+        g_object_unref(json_parser);
+        ret = -1;
+        goto out;
+
+    }
+    JsonNode *settings_node = json_parser_get_root(json_parser);
+    JsonObject *settings_body = matrix_json_node_get_object(settings_node);
+    retrieved_device_id = matrix_json_object_get_string_member(settings_body, "device_id");
+    retrieved_hs = matrix_json_object_get_string_member(settings_body, "server");
+    retrieved_pickle = matrix_json_object_get_string_member(settings_body, "pickle");
+    if (!retrieved_device_id || !retrieved_hs || !retrieved_pickle) {
+        purple_connection_error_reason(pc,
+                PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                "Unable to retrieve part of the stored account key");
+        g_object_unref(json_parser);
+
+        ret = -1;
+        goto out;
+    }
+    if (strcmp(retrieved_device_id, conn->e2e->device_id) ||
+        strcmp(retrieved_hs, conn->homeserver)) {
+        purple_connection_error_reason(pc,
+            PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                "Device ID/HS doesn't matched for stored account key");
+        g_object_unref(json_parser);
+
+        ret = -1;
+        goto out;
+    }
+    pickled_account = g_strdup(retrieved_pickle);
+    if (olm_unpickle_account(conn->e2e->oa, "!", 1, pickled_account, strlen(retrieved_pickle)) ==
+        olm_error()) {
+        purple_connection_error_reason(pc,
+                PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                olm_account_last_error(conn->e2e->oa));
+        g_object_unref(json_parser);
+        ret = -1;
+        goto out;
+    }
+    g_object_unref(json_parser);
+    purple_debug_info("matrixprpl", "Succesfully unpickled account\n");
+    ret = 1;
+
+out:
+    g_free(pickled_account);
+    return ret;
+}
+
 #else
 /* ==== Stubs for when e2e is configured out of the build === */
 #endif
