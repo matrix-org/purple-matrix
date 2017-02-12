@@ -35,6 +35,25 @@ struct _MatrixE2EData {
     gchar *device_id;
 };
 
+/* Returns a pointer to a freshly allocated buffer of 'n' bytes of random data.
+ * If it fails it returns NULL.
+ * TODO: There must be some portable function we can call to do this.
+ */
+static void *get_random(size_t n)
+{
+    FILE *urandom = fopen("/dev/urandom", "rb");
+    if (!urandom) {
+        return NULL;
+    }
+    void *buffer = g_malloc(n);
+    if (fread(buffer, 1, n, urandom) != n) {
+        g_free(buffer);
+        buffer = NULL;
+    }
+    fclose(urandom);
+    return buffer;
+}
+
 /* Returns the list of algorithms and our keys for those algorithms on the current account */
 static int get_id_keys(PurpleConnection *pc, OlmAccount *account, gchar ***algorithms, gchar ***keys)
 {
