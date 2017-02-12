@@ -19,8 +19,12 @@
 #include <stdio.h>
 #include <string.h>
 #include "libmatrix.h"
+#include "matrix-api.h"
 #include "matrix-e2e.h"
 #include "matrix-json.h"
+
+/* json-glib */
+#include <json-glib/json-glib.h>
 
 #include "connection.h"
 #ifndef MATRIX_NO_E2E
@@ -88,6 +92,53 @@ out:
     g_free(sig);
 
     return ret;
+}
+
+/* Store the current Olm account data into the Purple account data
+ */
+static int matrix_store_e2e_account(MatrixConnectionData *conn)
+{
+    PurpleConnection *pc = conn->pc;
+
+    size_t pickle_len = olm_pickle_account_length(conn->e2e->oa);
+    char *pickled_account = g_malloc0(pickle_len+1);
+
+    /* TODO: Wth to use as the key? We've not got anything in purple to protect
+     * it with? We could do with stuffing something into the system key ring
+     */
+    if (olm_pickle_account(conn->e2e->oa, "!", 1, pickled_account, pickle_len) ==
+        olm_error()) {
+        purple_connection_error_reason(pc,
+                PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                olm_account_last_error(conn->e2e->oa));
+        g_free(pickled_account);
+        return -1;
+    }
+
+    /* Create a JSON string to store in our account data, we include
+     * our device and server as sanity checks.
+     * TODO: Should we defer this until we've sent it to the server?
+     */
+    JsonObject *settings_body = json_object_new();
+    json_object_set_string_member(settings_body, "device_id", conn->e2e->device_id);
+    json_object_set_string_member(settings_body, "server", conn->homeserver);
+    json_object_set_string_member(settings_body, "pickle", pickled_account);
+    g_free(pickled_account);
+
+    JsonNode *settings_node = json_node_new(JSON_NODE_OBJECT);
+    json_node_set_object(settings_node, settings_body);
+    json_object_unref(settings_body);
+
+    JsonGenerator *settings_generator = json_generator_new();
+    json_generator_set_root(settings_generator, settings_node);
+    gchar *settings_string = json_generator_to_data(settings_generator, NULL);
+    g_object_unref(G_OBJECT(settings_generator));
+    json_node_free(settings_node);
+    purple_account_set_string(pc->account,
+                    PRPL_ACCOUNT_OPT_OLM_ACCOUNT_KEYS, settings_string);
+    g_free(settings_string);
+
+    return 0;
 }
 
 #else
