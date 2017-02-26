@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
 CC=gcc
-LIBS=purple json-glib-1.0 glib-2.0
+LIBS=purple json-glib-1.0 glib-2.0 sqlite3
 
 PKG_CONFIG=pkg-config
 CFLAGS+=$(shell $(PKG_CONFIG) --cflags $(LIBS))
