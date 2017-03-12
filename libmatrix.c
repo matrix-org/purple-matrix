@@ -79,10 +79,9 @@ static GList *matrixprpl_status_types(PurpleAccount *acct)
  * handle sending typing notifications in a chat
  */
 static guint matrixprpl_conv_send_typing(PurpleConversation *conv, 
-        PurpleTypingState state, PurpleConnection *pc)
+        PurpleTypingState state, gpointer ignored)
 {
-    if (pc == NULL)
-        pc = purple_conversation_get_gc(conv);
+    PurpleConnection *pc = purple_conversation_get_gc(conv);
 
     if (!PURPLE_CONNECTION_IS_CONNECTED(pc))
         return 0;
