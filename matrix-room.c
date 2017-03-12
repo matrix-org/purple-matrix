@@ -169,6 +169,19 @@ static void _on_member_change(PurpleConversation *conv,
             new_state->content);
 }
 
+/**
+ * Called when there is a change to the topic.
+ */
+static void _on_topic_change(PurpleConversation *conv,
+        MatrixRoomEvent *new_state)
+{
+    PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
+    
+    purple_conv_chat_set_topic(chat, new_state->sender,
+        matrix_json_object_get_string_member(new_state->content,
+            "topic"));
+}
+
 
 /**
  * Called when there is a state update.
@@ -195,6 +208,9 @@ static void _on_state_update(const gchar *event_type,
             strcmp(event_type, "m.room.canonical_alias") == 0 ||
             strcmp(event_type, "m.room.name") == 0) {
         _schedule_name_update(conv);
+    }
+    else if(strcmp(event_type, "m.room.topic") == 0) {
+        _on_topic_change(conv, new_state);
     }
 }
 
