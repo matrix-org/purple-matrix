@@ -171,6 +171,77 @@ static void _on_member_change(PurpleConversation *conv,
 
 
 /**
+ * Called when there is a change list of typing userss.
+ */
+static void _on_typing(PurpleConversation *conv,
+        MatrixRoomEvent *old_state, MatrixRoomEvent *new_state)
+{
+    PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
+    JsonArray *old_user_ids, *new_user_ids;
+    PurpleConvChatBuddyFlags cbflags;
+    guint i, j;
+    guint old_len, new_len;
+    MatrixRoomMemberTable *member_table;
+
+    member_table = matrix_room_get_member_table(conv);
+    
+    if (old_state != NULL) {
+        old_user_ids = matrix_json_object_get_array_member(old_state->content, "user_ids");
+        old_len = json_array_get_length(old_user_ids);
+    } else {
+        old_len = 0;
+    }
+    
+    new_user_ids = matrix_json_object_get_array_member(new_state->content, "user_ids");
+    new_len = json_array_get_length(new_user_ids);
+    
+    for (i = 0; i < old_len; i++) {
+        const gchar *user_id = json_array_get_string_element(old_user_ids, i);
+        MatrixRoomMember *roommember;
+        const gchar *displayname;
+        gboolean new_user_found = FALSE;
+        
+        for (j = 0; j < new_len; j++) {
+            const gchar *new_user_id = json_array_get_string_element(new_user_ids, j);
+            
+            if (g_strcmp0(user_id, new_user_id)) {
+                // no change, remove it from the new list
+                json_array_remove_element(new_user_ids, j);
+                new_len--;
+                new_user_found = TRUE;
+                break;
+            }
+        }
+        
+        if (new_user_found == FALSE) {
+            roommember = matrix_roommembers_lookup_member(member_table, user_id);
+            displayname = matrix_roommember_get_displayname(roommember);
+            
+            // in old list, not in new, i.e. stopped typing
+            cbflags = purple_conv_chat_user_get_flags(chat, displayname);
+            cbflags &= ~PURPLE_CBFLAGS_TYPING;
+            purple_conv_chat_user_set_flags(chat, displayname, cbflags);
+        }
+    }
+    
+    // everything left in new_user_ids is new typing events
+    for (i = 0; i < new_len; i++) {
+        const gchar *user_id = json_array_get_string_element(new_user_ids, i);
+        MatrixRoomMember *roommember;
+        const gchar *displayname;
+        
+        roommember = matrix_roommembers_lookup_member(member_table, user_id);
+        displayname = matrix_roommember_get_displayname(roommember);
+    
+        cbflags = purple_conv_chat_user_get_flags(chat, displayname);
+        cbflags |= PURPLE_CBFLAGS_TYPING;
+        purple_conv_chat_user_set_flags(chat, displayname, cbflags);
+    }
+    
+}
+
+
+/**
  * Called when there is a state update.
  *
  * old_state may be NULL to indicate addition of a state
@@ -195,6 +266,9 @@ static void _on_state_update(const gchar *event_type,
             strcmp(event_type, "m.room.canonical_alias") == 0 ||
             strcmp(event_type, "m.room.name") == 0) {
         _schedule_name_update(conv);
+    }
+    else if(strcmp(event_type, "m.typing") == 0) {
+        _on_typing(conv, old_state, new_state);
     }
 }
 
@@ -1160,6 +1234,30 @@ void matrix_room_send_image(PurpleConversation *conv, int imgstore_id,
     purple_conv_chat_write(PURPLE_CONV_CHAT(conv), _get_my_display_name(conv),
             message, PURPLE_MESSAGE_SEND | PURPLE_MESSAGE_IMAGES,
             g_get_real_time()/1000/1000);
+}
+
+/**
+ * Sends a typing notification in a room with a 25s timeout
+ */
+void matrix_room_send_typing(PurpleConversation *conv, gboolean typing)
+{
+    JsonObject *content;
+    MatrixConnectionData *acct;
+    PurpleConnection *pc = conv->account->gc;
+
+    acct = purple_connection_get_protocol_data(pc);
+    
+    content = json_object_new();
+    json_object_set_boolean_member(content, "typing", typing);
+    if (typing == TRUE) {
+        json_object_set_int_member(content, "timeout", 25000);
+    }
+    
+    // Don't check callbacks as it's inconsequential whether typing notifications go through
+    matrix_api_typing(acct, conv->name, content, 
+            NULL, NULL, NULL, NULL);
+    
+    json_object_unref(content);
 }
 
 /**
