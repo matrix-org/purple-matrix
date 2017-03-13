@@ -585,7 +585,7 @@ void matrix_api_cancel(MatrixApiRequestData *data)
 }
 
 
-gchar *_build_login_body(const gchar *username, const gchar *password)
+gchar *_build_login_body(const gchar *username, const gchar *password, const gchar *device_id)
 {
     JsonObject *body;
     JsonNode *node;
@@ -596,7 +596,10 @@ gchar *_build_login_body(const gchar *username, const gchar *password)
     json_object_set_string_member(body, "type", "m.login.password");
     json_object_set_string_member(body, "user", username);
     json_object_set_string_member(body, "password", password);
-	
+    json_object_set_string_member(body, "initial_device_display_name", "purple-matrix");
+    if (device_id != NULL)
+        json_object_set_string_member(body, "device_id", device_id);
+    
     node = json_node_new(JSON_NODE_OBJECT);
     json_node_set_object(node, body);
     json_object_unref(body);
@@ -612,6 +615,7 @@ gchar *_build_login_body(const gchar *username, const gchar *password)
 MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
         const gchar *username,
         const gchar *password,
+        const gchar *device_id,
         MatrixApiCallback callback,
         gpointer user_data)
 {
@@ -625,7 +629,7 @@ MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
     url = g_strconcat(conn->homeserver, "_matrix/client/api/v1/login",
             NULL);
 
-    json = _build_login_body(username, password);
+    json = _build_login_body(username, password, device_id);
 
     fetch_data = matrix_api_start(url, "POST", json, conn, callback,
             NULL, NULL, user_data, 0);

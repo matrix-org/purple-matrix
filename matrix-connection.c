@@ -181,6 +181,8 @@ static void _login_completed(MatrixConnectionData *conn,
     conn->access_token = g_strdup(access_token);
     conn->user_id = g_strdup(matrix_json_object_get_string_member(root_obj,
             "user_id"));
+    purple_account_set_string(pc->account, "device_id", 
+        matrix_json_object_get_string_member(root_obj, "device_id"));
 
     /* start the sync loop */
     next_batch = purple_account_get_string(pc->account,
@@ -233,7 +235,9 @@ void matrix_connection_start_login(PurpleConnection *pc)
     purple_connection_update_progress(pc, _("Logging in"), 0, 3);
 
     matrix_api_password_login(conn, acct->username,
-            purple_account_get_password(acct), _login_completed, conn);
+            purple_account_get_password(acct),
+            purple_account_get_string(acct, "device_id", NULL),
+            _login_completed, conn);
 }
 
 

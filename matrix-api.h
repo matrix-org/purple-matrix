@@ -134,6 +134,7 @@ void matrix_api_cancel(MatrixApiRequestData *request);
 MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
         const gchar *username,
         const gchar *password,
+        const gchar *device_id,
         MatrixApiCallback callback,
         gpointer user_data);
 
