@@ -1100,15 +1100,18 @@ out:
     return;
 }
 
-
-void matrix_e2e_decrypt_room(PurpleConversation *conv,
-                             struct _JsonObject *cevent)
+/*
+ * If succesful returns a JsonParser on the decrypted event.
+ */
+JsonParser *matrix_e2e_decrypt_room(PurpleConversation *conv,
+                                    struct _JsonObject *cevent)
 {
     JsonObject *cevent_content;
     const gchar *cevent_sender, *cevent_sender_key, *cevent_session_id;
     const gchar *algorithm, *cevent_ciphertext, *cevent_device_id;
     gchar *dupe_ciphertext = NULL;
     gchar *plaintext = NULL;
+    JsonParser *plaintext_parser = NULL;
 
     cevent_sender = matrix_json_object_get_string_member(cevent, "sender");
     cevent_content = matrix_json_object_get_object_member(cevent, "content");
@@ -1126,7 +1129,7 @@ void matrix_e2e_decrypt_room(PurpleConversation *conv,
     if (!algorithm || strcmp(algorithm, "m.megolm.v1.aes-sha2")) {
         purple_debug_info("matrixprpl", "%s: Bad algorithm %s\n",
                                __func__, algorithm);
-        return;
+        goto out;
     }
 
     if (!cevent_sender || !cevent_content || !cevent_sender_key ||
@@ -1138,7 +1141,7 @@ void matrix_e2e_decrypt_room(PurpleConversation *conv,
                                __func__, cevent_sender, cevent_content,
                                cevent_sender_key, cevent_session_id,
                                cevent_device_id, cevent_ciphertext);
-        return;
+        goto out;
     }
 
     OlmInboundGroupSession *oigs = get_inbound_megolm_session(conv,
@@ -1152,7 +1155,7 @@ void matrix_e2e_decrypt_room(PurpleConversation *conv,
                           "%s: No Megolm session for %s/%s/%s/%s\n", __func__,
                           cevent_device_id, cevent_sender, cevent_sender_key,
                           cevent_session_id);
-        return;
+        goto out;
     }
     purple_debug_info("matrixprpl",
                       "%s: have Megolm session %p for %s/%s/%s/%s\n",
@@ -1193,16 +1196,28 @@ void matrix_e2e_decrypt_room(PurpleConversation *conv,
                 __func__, decrypt_len, maxlen);
         goto out;
     }
+    // TODO: Stash index somewhere - supposed to check it for validity
     plaintext[decrypt_len] = '\0';
     purple_debug_info("matrixprpl",
                       "%s: Decrypted megolm event as '%s' index=%zd\n",
                       __func__, plaintext, (size_t)index);
-    // TODO: Stash index somewhere - supposed to check it for validity
-    // TODO: JSON parse it and then send it back to matrix_room_handle_timeline_event
+
+    plaintext_parser = json_parser_new();
+    GError *err = NULL;
+    if (!json_parser_load_from_data(plaintext_parser,
+                                    plaintext, strlen(plaintext), &err)) {
+        purple_debug_info("matrixprpl",
+                          "%s: Failed to json parse decrypted plain text: %s\n",
+                          __func__, plaintext);
+        g_object_unref(plaintext_parser);
+        goto out;
+    }
 
 out:
     g_free(dupe_ciphertext);
     g_free(plaintext);
+
+    return plaintext_parser;
 }
 
 
