@@ -932,6 +932,7 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     gchar *tmp_body = NULL;
     gchar *escaped_body = NULL;
     PurpleMessageFlags flags;
+    JsonParser *decrypted_parser = NULL;
 
     const gchar *sender_display_name;
     MatrixRoomMember *sender = NULL;
@@ -953,8 +954,27 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
 
     if(!strcmp(event_type, "m.room.encrypted")) {
         purple_debug_info("matrixprpl", "Got an m.room.encrypted!\n");
-        matrix_e2e_decrypt_room(conv, json_event_obj);
-        return;
+        decrypted_parser = matrix_e2e_decrypt_room(conv, json_event_obj);
+        if (!decrypted_parser) {
+            purple_debug_warning("matrixprpl",
+                                 "Failed to decrypt m.room.encrypted");
+            return;
+        }
+        JsonNode *decrypted_node = json_parser_get_root(decrypted_parser);
+        JsonObject *decrypted_body;
+        decrypted_body = matrix_json_node_get_object(decrypted_node);
+        event_type = matrix_json_object_get_string_member(decrypted_body,
+                                                               "type");
+        json_content_obj = matrix_json_object_get_object_member(decrypted_body,
+                                                               "content");
+        // TODO: Check room_id matches
+        // TODO: Add some info about device trust etc
+        if (!event_type || !json_content_obj) {
+            purple_debug_warning("matrixprpl",
+                                 "Failed to find members of decrypted json");
+            g_object_unref(decrypted_parser);
+            return;
+        }
     }
 
     if(strcmp(event_type, "m.room.message") != 0) {
@@ -1023,6 +1043,9 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     serv_got_chat_in(conv->account->gc, g_str_hash(room_id),
             sender_display_name, flags, escaped_body, timestamp / 1000);
     g_free(escaped_body);
+    if (decrypted_parser) {
+        g_object_unref(decrypted_parser);
+    }
 }
 
 
