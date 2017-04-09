@@ -65,4 +65,7 @@ const gchar *matrix_json_array_get_string_element(JsonArray *array,
  */
 GString *matrix_canonical_json(JsonObject *object);
 
+/* Just dump the Json with the string prefix for debugging */
+void matrix_debug_jsonobject(const char *reason, JsonObject *object);
+
 #endif /* MATRIX_JSON_H_ */
