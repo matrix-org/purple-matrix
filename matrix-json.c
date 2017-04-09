@@ -248,3 +248,16 @@ GString *matrix_canonical_json(JsonObject *object, GString *result)
   result = g_string_append_c(result, '}');
   return result;
 }
+
+/* Just dump the Json with the string prefix for debuggin */
+void matrix_debug_jsonobject(const char *reason, JsonObject *object)
+{
+    JsonNode *tmp_top = json_node_new(JSON_NODE_OBJECT);
+    json_node_set_object(tmp_top, object);
+    JsonGenerator *generator = json_generator_new();
+    json_generator_set_pretty(generator, TRUE);
+    json_generator_set_root(generator, tmp_top);
+    const char *json = json_generator_to_data(generator, NULL);
+    fprintf(stderr, "%s: %s\n", reason, json);
+}
+
