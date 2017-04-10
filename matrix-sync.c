@@ -323,7 +323,11 @@ void matrix_sync_parse(PurpleConnection *pc, JsonNode *body,
             purple_debug_info("matrixprpl",  "to_device: Got %s from %s\n",
                     event_type,
                     matrix_json_object_get_string_member(event_obj, "sender"));
-            // TODO Handle some events
+            if (!strcmp(event_type, "m.room.encrypted")) {
+                matrix_e2e_decrypt_d2d(pc, event_obj);
+            } else {
+            }
+
         }
     }
 
