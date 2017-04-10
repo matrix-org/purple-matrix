@@ -145,17 +145,24 @@ static void olm_hash_key_destroy(gpointer k)
     g_free(ok);
 }
 
+static void free_matrix_olm_session(MatrixOlmSession *msession,
+                                    gboolean free_session)
+{
+    g_free(msession->sender_id);
+    g_free(msession->sender_key);
+    if (free_session) {
+        olm_clear_session(msession->session);
+        g_free(msession->session);
+    }
+}
+
 static void olm_hash_value_destroy(gpointer v)
 {
     MatrixOlmSession *os = v;
 
     while (os) {
         MatrixOlmSession *next = os->next;
-        olm_clear_session(os->session);
-        g_free(os->session);
-        g_free(os->sender_key);
-        g_free(os->sender_id);
-        g_free(os);
+        free_matrix_olm_session(os, TRUE);
         os = next;
     }
 }
@@ -400,6 +407,91 @@ bad_sql:
         g_hash_table_insert(conn->e2e->olm_session_hash, key, list_head);
     }
     return result;
+}
+
+/* Save a new olm session into the database */
+static MatrixOlmSession *store_olm_session(MatrixConnectionData *conn,
+                                           OlmSession *session,
+                                           const char *sender_id,
+                                           const char *sender_key)
+{
+    MatrixOlmSession *cur_entry = g_new0(MatrixOlmSession, 1);
+    size_t pickle_len = olm_pickle_session_length(session);
+    gchar *pickle = g_malloc(pickle_len+1);
+    sqlite3_stmt *dbstmt = NULL;
+
+    pickle_len = olm_pickle_session(session, "!", 1, pickle, pickle_len);
+    if (pickle_len == olm_error()) {
+        purple_debug_warning("matrixprpl",
+                             "%s: Failed to pickle session for %s/%s: %s\n",
+                             __func__, sender_id, sender_key,
+                             olm_session_last_error(session));
+        goto err;
+    }
+    pickle[pickle_len] = '\0';
+
+    cur_entry->sender_id = g_strdup(sender_id);
+    cur_entry->sender_key = g_strdup(sender_key);
+    cur_entry->session = session;
+
+    const char *query = "INSERT into olmsessions "
+                        "(sender_name, sender_key, session_pickle) "
+                        "VALUES (?, ?, ?)";
+
+    int ret = sqlite3_prepare_v2(conn->e2e->db, query, -1, &dbstmt, NULL);
+    if (ret != SQLITE_OK || !dbstmt) {
+        purple_debug_warning("matrixprpl",
+                             "%s: Failed to prep insert %d '%s'\n",
+                             __func__, ret, query);
+        goto err;
+    }
+    ret = sqlite3_bind_text(dbstmt, 1, sender_id, -1, NULL);
+    if (ret == SQLITE_OK) {
+        ret = sqlite3_bind_text(dbstmt, 2, sender_key, -1, NULL);
+    }
+    if (ret == SQLITE_OK) {
+        ret = sqlite3_bind_text(dbstmt, 3, pickle, -1, NULL);
+    }
+    if (ret != SQLITE_OK) {
+        purple_debug_warning("matrixprpl",
+                             "%s: Failed to bind %d\n", __func__, ret);
+        goto err;
+    }
+
+    ret = sqlite3_step(dbstmt);
+    if (ret != SQLITE_DONE) {
+        purple_debug_warning("matrixprpl",
+                             "%s: Insert failed %d (%s)\n", __func__,
+                             ret, query);
+        goto err;
+    }
+    sqlite3_finalize(dbstmt);
+    cur_entry->unique = sqlite3_last_insert_rowid(conn->e2e->db);
+
+    MatrixHashKeyOlm match;
+    match.sender_key = (gchar *)sender_key;
+    match.sender_id = (gchar *)sender_id;
+    MatrixOlmSession *hash_result = (MatrixOlmSession *)g_hash_table_lookup(
+                       conn->e2e->olm_session_hash, &match);
+    if (hash_result) {
+        /* If there's already an entry, insert it after the head */
+        cur_entry->next = hash_result->next;
+        hash_result->next = cur_entry;
+    } else {
+        /* No entry, we need to stuff it into the hash table */
+        MatrixHashKeyOlm *key = g_new0(MatrixHashKeyOlm, 1);
+        key->sender_key = g_strdup(sender_key);
+        key->sender_id = g_strdup(sender_id);
+        /* We loaded entries where there were none before, set the hash */
+        g_hash_table_insert(conn->e2e->olm_session_hash, key, cur_entry);
+    }
+
+    return cur_entry;
+
+err:
+    g_free(pickle);
+    free_matrix_olm_session(cur_entry, FALSE);
+    return NULL;
 }
 
 /* Sign the JsonObject with olm_account_sign and add it to the object
@@ -1278,6 +1370,11 @@ static void decrypt_olm(PurpleConnection *pc, MatrixConnectionData *conn, JsonOb
                     "%s: Failed to remove 1tk from inbound session "
                     " creation: %s\n",
                     __func__, olm_account_last_error(conn->e2e->oa));
+                g_free(session);
+                goto err;
+            }
+            mos = store_olm_session(conn, session, cevent_sender, sender_key);
+            if (!mos) {
                 g_free(session);
                 goto err;
             }
