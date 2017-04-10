@@ -453,6 +453,72 @@ err:
     return NULL;
 }
 
+/* Update an existing OLM session in the database */
+static int update_olm_session(MatrixConnectionData *conn,
+                              MatrixOlmSession *mos)
+{
+    size_t pickle_len = olm_pickle_session_length(mos->session);
+    gchar *pickle = g_malloc(pickle_len+1);
+    sqlite3_stmt *dbstmt = NULL;
+    int ret = -1;
+
+    pickle_len = olm_pickle_session(mos->session, "!", 1, pickle, pickle_len);
+    if (pickle_len == olm_error()) {
+        purple_debug_warning("matrixprpl",
+                "%s: Failed to pickle session for %s/%s: %s\n",
+                __func__, mos->sender_id, mos->sender_key,
+                olm_session_last_error(mos->session));
+        goto err;
+    }
+    pickle[pickle_len] = '\0';
+
+    const char *query ="UPDATE olmsessions SET session_pickle=? "
+                       "WHERE sender_name = ? AND sender_key = ? AND "
+                       "ROWID = ?";
+    ret = sqlite3_prepare_v2(conn->e2e->db, query, -1, &dbstmt, NULL);
+    if (ret != SQLITE_OK || !dbstmt) {
+        purple_debug_warning("matrixprpl",
+                "%s: Failed to prep update %d '%s'\n",
+                __func__, ret, query);
+        ret = -1;
+        goto err;
+    }
+    ret = sqlite3_bind_text(dbstmt, 1, pickle, -1, NULL);
+    if (ret == SQLITE_OK) {
+        ret = sqlite3_bind_text(dbstmt, 2, mos->sender_id, -1, NULL);
+    }
+    if (ret == SQLITE_OK) {
+        ret = sqlite3_bind_text(dbstmt, 3, mos->sender_key, -1, NULL);
+    }
+    if (ret == SQLITE_OK) {
+        ret = sqlite3_bind_int64(dbstmt, 4, mos->unique);
+    }
+
+    if (ret != SQLITE_OK) {
+        purple_debug_warning("matrixprpl",
+                             "%s: Failed to bind %d\n", __func__, ret);
+        ret = -1;
+        goto err;
+    }
+
+    ret = sqlite3_step(dbstmt);
+    if (ret != SQLITE_DONE) {
+        purple_debug_warning("matrixprpl",
+                             "%s: Update failed %d (%s)\n", __func__,
+                ret, query);
+        ret = -1;
+        goto err;
+
+    }
+    ret = 0;
+
+err:
+    sqlite3_finalize(dbstmt);
+    g_free(pickle);
+
+    return ret;
+}
+
 static void key_upload_callback(MatrixConnectionData *conn,
                                 gpointer user_data,
                                 struct _JsonNode *json_root,
@@ -1407,20 +1473,19 @@ static void decrypt_olm(PurpleConnection *pc, MatrixConnectionData *conn, JsonOb
                               __func__, olm_session_last_error(session));
             goto err;
         }
+        update_olm_session(conn, mos);
         plaintext[pt_len] = '\0';
         handle_decrypted_olm(pc, conn, cevent_sender, sender_key, plaintext);
-        // TODO: Store session in db
     } else {
         purple_debug_info("matrixprpl", "%s: Type %zd olm\n", __func__, type);
     }
-    // TODO  resave account? Or just session?
-    //
     if (plaintext) {
         clear_mem(plaintext, max_plaintext_len);
     }
     g_free(plaintext);
     g_free(cevent_body_copy);
 
+    matrix_store_e2e_account(conn);
     return;
 
 err:
