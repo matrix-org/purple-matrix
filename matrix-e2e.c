@@ -17,6 +17,8 @@
  */
 
 #include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include <string.h>
 #include <sqlite3.h>
 #include "libmatrix.h"
@@ -32,12 +34,16 @@
 #ifndef MATRIX_NO_E2E
 #include "olm/olm.h"
 
+struct _MatrixOlmSession;
+
 struct _MatrixE2EData {
     OlmAccount *oa;
     gchar *device_id;
     gchar *curve25519_pubkey;
     gchar *ed25519_pubkey;
     sqlite3 *db;
+    /* Mapping from MatrixHashKeyOlm to MatrixOlmSession */
+    GHashTable *olm_session_hash;
 };
 
 #define PURPLE_CONV_E2E_STATE "e2e"
@@ -48,12 +54,70 @@ typedef struct _MatrixE2ERoomData {
     GHashTable *megolm_sessions_inbound;
 } MatrixE2ERoomData;
 
+typedef struct _MatrixHashKeyOlm {
+    gchar *sender_key;
+    gchar *sender_id;
+} MatrixHashKeyOlm;
+
+typedef struct _MatrixOlmSession {
+    gchar *sender_key;
+    gchar *sender_id;
+    OlmSession *session;
+    sqlite3_int64 unique;
+    struct _MatrixOlmSession *next;
+} MatrixOlmSession;
+
 typedef struct _MatrixHashKeyInBoundMegOlm {
     gchar *sender_key;
     gchar *sender_id;
     gchar *session_id;
     gchar *device_id;
 } MatrixHashKeyInBoundMegOlm;
+
+/* GHashFunc for two MatrixHasKeyOlm */
+static gboolean olm_inbound_equality(gconstpointer a, gconstpointer b)
+{
+    const MatrixHashKeyOlm *hk_a;
+    const MatrixHashKeyOlm *hk_b;
+    hk_a = (const MatrixHashKeyOlm *)a;
+    hk_b = (const MatrixHashKeyOlm *)b;
+
+    return !strcmp(hk_a->sender_key, hk_b->sender_key) &&
+           !strcmp(hk_a->sender_id, hk_b->sender_id);
+}
+
+/* GHashFunc for a _MatrixHashKeyOlm */
+static guint olm_inbound_hash(gconstpointer a)
+{
+    const MatrixHashKeyOlm *hk;
+    hk = (const MatrixHashKeyOlm *)a;
+    return g_str_hash(hk->sender_key) +
+           g_str_hash(hk->sender_id);
+}
+
+static void olm_hash_key_destroy(gpointer k)
+{
+    MatrixHashKeyOlm *ok = k;
+
+    g_free(ok->sender_key);
+    g_free(ok->sender_id);
+    g_free(ok);
+}
+
+static void olm_hash_value_destroy(gpointer v)
+{
+    MatrixOlmSession *os = v;
+
+    while (os) {
+        MatrixOlmSession *next = os->next;
+        olm_clear_session(os->session);
+        g_free(os->session);
+        g_free(os->sender_key);
+        g_free(os->sender_id);
+        g_free(os);
+        os = next;
+    }
+}
 
 /* GEqualFunc for two MatrixHashKeyInBoundMegOlm */
 static gboolean megolm_inbound_equality(gconstpointer a, gconstpointer b)
@@ -139,6 +203,162 @@ static void store_inbound_megolm_session(PurpleConversation *conv,
     purple_debug_info("matrixprpl", "%s: %s/%s/%s/%s\n",
                __func__, device_id, sender_id, sender_key, session_id);
     g_hash_table_insert(get_e2e_inbound_megolm_hash(conv), key, igs);
+}
+
+/* Find if we already have an OlmSession for this sender/sender_key somewhere
+ * that this body matches.
+ */
+static MatrixOlmSession *find_olm_session(MatrixConnectionData *conn,
+                                    const char *sender_id, const char *sender_key,
+                                    const char *body)
+{
+    gboolean have_sender = FALSE;
+    MatrixOlmSession *cur_entry, *list_head, *hash_result;
+    MatrixOlmSession *result = NULL;
+    MatrixHashKeyOlm match;
+
+    purple_debug_info("matrixprpl", "find_olm_session for %s/%s\n",
+                       sender_id, sender_key);
+    match.sender_key = (gchar *)sender_key;
+    match.sender_id = (gchar *)sender_id;
+    hash_result = (MatrixOlmSession *)g_hash_table_lookup(
+                       conn->e2e->olm_session_hash, &match);
+    cur_entry = hash_result;
+    list_head = hash_result;
+
+    while (cur_entry) {
+        if (!strcmp(sender_id, cur_entry->sender_id) &&
+            !strcmp(sender_key, cur_entry->sender_key)) {
+            size_t ret;
+            char *body_double = g_strdup(body);
+            have_sender = TRUE;
+            ret = olm_matches_inbound_session(cur_entry->session, body_double,
+                                              strlen(body));
+            g_free(body_double);
+            if (ret == 1) {
+                purple_debug_info("matrixprpl",
+                                  "%s: Found matching session for %s/%s\n",
+                                  __func__, sender_id, sender_key);
+                return cur_entry;
+            }
+            if (ret == olm_error()) {
+                purple_debug_warning("matrixprpl",
+                        "%s: Error while checking session %p for "
+                        "match with %s/%s: %s\n", __func__, cur_entry->session,
+                        sender_id, sender_key,
+                        olm_session_last_error(cur_entry->session));
+            }
+        }
+        cur_entry = cur_entry->next;
+    }
+
+    if (!have_sender) {
+        MatrixOlmSession **chain = &list_head;
+        int ret;
+        /* We have no entries at all for the sender+key, lets load all the
+         * data from the db
+         */
+        const char *query = "SELECT session_pickle, rowid "
+                            "FROM olmsessions "
+                            "WHERE sender_name = ? AND "
+                            "sender_key = ?";
+
+        sqlite3_stmt *dbstmt = NULL;
+        ret = sqlite3_prepare_v2(conn->e2e->db, query, -1, &dbstmt, NULL);
+        if (ret != SQLITE_OK || !dbstmt) {
+             purple_debug_warning("matrixprpl",
+                       "%s: Failed to prep select %d '%s'\n",
+                       __func__, ret, query);
+            goto bad_sql;
+        }
+        ret = sqlite3_bind_text(dbstmt, 1, sender_id, -1, NULL);
+        if (ret == SQLITE_OK) {
+            ret = sqlite3_bind_text(dbstmt, 2, sender_key, -1, NULL);
+        }
+        if (ret != SQLITE_OK) {
+            purple_debug_warning("matrixprpl", "%s: Failed to bind %d\n",
+                               __func__, ret);
+            goto bad_sql;
+        }
+
+        /* Find the end of the chain to get the pointer to update */
+        for (cur_entry = list_head; cur_entry; cur_entry=cur_entry->next) {
+            chain = &(cur_entry->next);
+        }
+
+        while (ret = sqlite3_step(dbstmt), ret == SQLITE_ROW) {
+            const gchar *pickle = (gchar *)sqlite3_column_text(dbstmt, 0);
+            gchar *dupe_pickle;
+            if (!pickle) {
+                purple_debug_warning("matrixprpl",
+                        "%s: Empty pickle for %s/%s\n", __func__,
+                        sender_id, sender_key);
+                continue;
+            };
+            dupe_pickle = g_strdup(pickle);
+            OlmSession *session = olm_session(g_malloc0(olm_session_size()));
+            if (olm_unpickle_session(session, "!", 1, dupe_pickle,
+                                     strlen(dupe_pickle)) == olm_error()) {
+                purple_debug_warning("matrixprpl",
+                                     "%s: Failed to unpickle %s for %s/%s\n",
+                                     __func__, pickle, sender_id, sender_key);
+                g_free(dupe_pickle);
+                g_free(session);
+                continue;
+            }
+            g_free(dupe_pickle);
+            cur_entry = g_new0(MatrixOlmSession, 1);
+            cur_entry->sender_id = g_strdup(sender_id);
+            cur_entry->sender_key = g_strdup(sender_key);
+            cur_entry->session = session;
+            cur_entry->unique = sqlite3_column_int64(dbstmt, 1);
+            *chain = cur_entry;
+
+            if (!result) {
+                char *body_double = g_strdup(body);
+                /* But is this the session we're after ? */
+                ret = olm_matches_inbound_session(session,
+                                                  body_double, strlen(body));
+                g_free(body_double);
+                if (ret == 1) {
+                    purple_debug_info("matrixprpl",
+                               "%s: Found (loaded) session for %s/%s\n",
+                               __func__, sender_id, sender_key);
+                    result = cur_entry;
+                    /* Carry on loading any other sessions */
+                }
+                if (ret == olm_error()) {
+                    purple_debug_warning("matrixprpl",
+                        "%s: Error while checking loaded session %p for "
+                        "match with %s/%s: %s\n", __func__, session,
+                        sender_id, sender_key,
+                        olm_session_last_error(session));
+                }
+                if (!ret) {
+                    purple_debug_warning("matrixprpl",
+                            "%s: Loaded session (%" PRIx64
+                            ") is not a match for %s/%s\n",
+                            __func__, (int64_t)cur_entry->unique, sender_id,
+                            sender_key);
+                }
+            }
+        }
+        if (ret != SQLITE_DONE) {
+            purple_debug_warning("matrixprpl", "%s: db step failed %d\n",
+                                 __func__, ret);
+            goto bad_sql;
+        }
+bad_sql:
+        sqlite3_finalize(dbstmt);
+    }
+    if (list_head && !hash_result) {
+        MatrixHashKeyOlm *key = g_new0(MatrixHashKeyOlm, 1);
+        key->sender_key = g_strdup(sender_key);
+        key->sender_id = g_strdup(sender_id);
+        /* We loaded entries where there were none before, set the hash */
+        g_hash_table_insert(conn->e2e->olm_session_hash, key, list_head);
+    }
+    return result;
 }
 
 static void key_upload_callback(MatrixConnectionData *conn,
@@ -655,7 +875,11 @@ static int open_e2e_db(MatrixConnectionData *conn)
         return ret;
     }
 
-    /* TODO: Add calls to ensure_table here */
+    ret = ensure_table(conn,
+                 "SELECT name FROM sqlite_master WHERE type='table' AND name='olmsessions'",
+                 "CREATE TABLE olmsessions (sender_name text, sender_key text,"
+                 "                          session_pickle text,"
+                 "                          PRIMARY KEY (sender_name, sender_key))");
 
     if (ret) {
         close_e2e_db(conn);
@@ -683,6 +907,10 @@ int matrix_e2e_get_device_keys(MatrixConnectionData *conn, const gchar *device_i
     if (!conn->e2e) {
         conn->e2e = g_new0(MatrixE2EData,1);
         conn->e2e->device_id = g_strdup(device_id);
+        conn->e2e->olm_session_hash = g_hash_table_new_full(olm_inbound_hash,
+                                                       olm_inbound_equality,
+                                                       olm_hash_key_destroy,
+                                                       olm_hash_value_destroy);
     }
     conn->e2e->oa = account;
 
@@ -803,6 +1031,7 @@ void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
 {
     if (conn->e2e) {
         close_e2e_db(conn);
+        g_hash_table_destroy(conn->e2e->olm_session_hash);
         g_free(conn->e2e->curve25519_pubkey);
         g_free(conn->e2e->oa);
         g_free(conn->e2e->device_id);
@@ -985,7 +1214,6 @@ static void decrypt_olm(PurpleConnection *pc, MatrixConnectionData *conn, JsonOb
     gchar *cevent_body_copy = NULL;
     gchar *plaintext = NULL;
     size_t max_plaintext_len = 0;
-    OlmSession *session = NULL;
     cevent_sender = matrix_json_object_get_string_member(cevent, "sender");
     sender_key = matrix_json_object_get_string_member(cevent_content,
                                                        "sender_key");
@@ -993,6 +1221,8 @@ static void decrypt_olm(PurpleConnection *pc, MatrixConnectionData *conn, JsonOb
                                                                "ciphertext");
     /* TODO: Look up sender_key - I think we need to check this against device
      * list from user? */
+    MatrixOlmSession *mos = NULL;
+    OlmSession *session = NULL;
 
     if (!cevent_ciphertext || !sender_key) {
         purple_debug_info("matrixprpl",
@@ -1020,29 +1250,42 @@ static void decrypt_olm(PurpleConnection *pc, MatrixConnectionData *conn, JsonOb
                       "%s: Type %zd olm encrypted message from %s\n",
                       __func__, (size_t)type, cevent_sender);
     if (!type) {
-        /* A 'prekey' message to establish an Olm session
-         * TODO!!!!: Try existing sessions and check with
-         * matches_inbound_session */
-        session = olm_session(g_malloc0(olm_session_size()));
+        /* A 'prekey' message to establish an Olm session */
         const gchar *cevent_body;
         cevent_body = matrix_json_object_get_string_member(our_ciphertext,
-                                                               "body");
-        gchar *cevent_body_copy = g_strdup(cevent_body);
-        if (olm_create_inbound_session_from(session, conn->e2e->oa, sender_key,
-                                               strlen(sender_key),
-                                        cevent_body_copy, strlen(cevent_body))
-            == olm_error()) {
-            purple_debug_info("matrixprpl",
-                              "%s: prekey inbound_session_from failed : %s\n",
+                                                           "body");
+        mos = find_olm_session(conn, cevent_sender, sender_key, cevent_body);
+        if (!mos) {
+            cevent_body_copy = g_strdup(cevent_body);
+            /* OK, no existing session, lets create one */
+            session = olm_session(g_malloc0(olm_session_size()));
+
+            if (olm_create_inbound_session_from(session, conn->e2e->oa,
+                                               sender_key, strlen(sender_key),
+                                               cevent_body_copy,
+                                               strlen(cevent_body)) ==
+                olm_error()) {
+                purple_debug_info("matrixprpl",
+                    "%s: olm prekey inbound_session_from failed with %s\n",
                     __func__, olm_session_last_error(session));
-            goto err;
-        }
-        if (olm_remove_one_time_keys(conn->e2e->oa, session) == olm_error()) {
-            purple_debug_info("matrixprpl",
-                              "%s: Failed to remove 1tk, inbound session: %s\n",
+                g_free(session);
+                goto err;
+            }
+            if (olm_remove_one_time_keys(conn->e2e->oa, session) ==
+                olm_error()) {
+                purple_debug_info("matrixprpl",
+                    "%s: Failed to remove 1tk from inbound session "
+                    " creation: %s\n",
                     __func__, olm_account_last_error(conn->e2e->oa));
-            goto err;
+                g_free(session);
+                goto err;
+            }
+            if (matrix_store_e2e_account(conn)) {
+                g_free(session);
+                goto err;
+            }
         }
+        session = mos->session;
         cevent_body_copy = g_strdup(cevent_body);
         max_plaintext_len = olm_decrypt_max_plaintext_length(session,
                                        0 /* Prekey */,
@@ -1089,7 +1332,6 @@ err:
     }
     g_free(plaintext);
     g_free(cevent_body_copy);
-    g_free(session);
 }
 
 /*
