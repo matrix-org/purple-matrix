@@ -810,6 +810,81 @@ void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
     }
 }
 
+/* See: https://matrix.org/docs/guides/e2e_implementation.html#handling-an-m-room-key-event
+ */
+static int handle_m_room_key(PurpleConnection *pc, MatrixConnectionData *conn,
+                             const gchar *sender, const gchar *sender_key, const gchar *sender_device,
+                             JsonObject *mrk)
+{
+    int ret = 0;
+    purple_debug_info("matrixprpl", "%s\n", __func__);
+    JsonObject *mrk_content;
+    const gchar *mrk_algo;
+    PurpleConversation *conv;
+    mrk_content = matrix_json_object_get_object_member(mrk, "content");
+    mrk_algo = matrix_json_object_get_string_member(mrk_content, "algorithm");
+    OlmInboundGroupSession *in_mo_session = NULL;
+
+    if (!mrk_algo || strcmp(mrk_algo, "m.megolm.v1.aes-sha2")) {
+        purple_debug_info("matrixprpl", "%s: Not megolm (%s)\n",
+                               __func__, mrk_algo);
+        ret = -1;
+        goto out;
+    }
+
+    const gchar *mrk_room_id, *mrk_session_id, *mrk_session_key;
+    mrk_room_id = matrix_json_object_get_string_member(mrk_content, "room_id");
+    mrk_session_id = matrix_json_object_get_string_member(mrk_content,
+                                                               "session_id");
+    mrk_session_key = matrix_json_object_get_string_member(mrk_content,
+                                                               "session_key");
+
+    conv = purple_find_conversation_with_account(PURPLE_CONV_TYPE_CHAT,
+                                                 mrk_room_id, pc->account);
+    if (!conv) {
+        purple_debug_info("matrixprpl", "%s: Unknown room %s\n",
+                          __func__, mrk_room_id);
+        ret = -1;
+        goto out;
+    }
+
+    /* Search for an existing session with the matching room_id,
+     * sender_key, session_id */
+    in_mo_session = get_inbound_megolm_session(conv, sender_key,
+                                               sender, mrk_session_id,
+                                               sender_device);
+      
+    if (!in_mo_session) {
+        /* Bah, no match, lets make one */
+        in_mo_session =  olm_inbound_group_session(g_malloc(
+                               olm_inbound_group_session_size()));
+        if (olm_init_inbound_group_session(in_mo_session,
+                                       (const uint8_t *)mrk_session_key,
+                                       strlen(mrk_session_key)) ==
+                olm_error()) {
+            purple_debug_info("matrixprpl",
+                       "%s: megolm inbound session creation failed: %s\n",
+                       __func__,
+                       olm_inbound_group_session_last_error(in_mo_session));
+            ret = -1;
+            goto out;
+        }
+
+        store_inbound_megolm_session(conv, sender_key, sender,
+                                     mrk_session_id, sender_device,
+                                     in_mo_session);
+    }
+
+out:
+    if (ret) {
+        if (in_mo_session) {
+            olm_clear_inbound_group_session(in_mo_session);
+        }
+        g_free(in_mo_session);
+    }
+    return ret;
+}
+
 /* Called from decypt_olm after we've decrypted an olm message.
  */
 static int handle_decrypted_olm(PurpleConnection *pc,
@@ -883,8 +958,8 @@ static int handle_decrypted_olm(PurpleConnection *pc,
 
     /* TODO: check the device against the keys in use, stash somewhere? */
     if (!strcmp(pt_type, "m.room_key")) {
-        //ret = handle_m_room_key(pc, conn, pt_sender, sender_key,
-        //                        pt_sender_device, pt_body);
+        ret = handle_m_room_key(pc, conn, pt_sender, sender_key,
+                                pt_sender_device, pt_body);
     } else {
         purple_debug_info("matrixprpl",
                           "%s: Got '%s' from '%s'/'%s'\n",
