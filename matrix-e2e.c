@@ -40,6 +40,21 @@ struct _MatrixE2EData {
     sqlite3 *db;
 };
 
+#define PURPLE_CONV_E2E_STATE "e2e"
+
+/* Hung off the Purple conversation with the PURPLE_CONV_E2E_STATE */
+typedef struct _MatrixE2ERoomData {
+    /* Mapping from _MatrixHashKeyInBoundMegOlm to OlmInboundGroupSession */
+    GHashTable *megolm_sessions_inbound;
+} MatrixE2ERoomData;
+
+typedef struct _MatrixHashKeyInBoundMegOlm {
+    gchar *sender_key;
+    gchar *sender_id;
+    gchar *session_id;
+    gchar *device_id;
+} MatrixHashKeyInBoundMegOlm;
+
 static void key_upload_callback(MatrixConnectionData *conn,
                                 gpointer user_data,
                                 struct _JsonNode *json_root,
@@ -78,6 +93,91 @@ static void *get_random(size_t n)
     }
     fclose(urandom);
     return buffer;
+}
+/* GEqualFunc for two MatrixHashKeyInBoundMegOlm */
+static gboolean megolm_inbound_equality(gconstpointer a, gconstpointer b)
+{
+    const MatrixHashKeyInBoundMegOlm *hk_a;
+    const MatrixHashKeyInBoundMegOlm *hk_b;
+    hk_a = (const MatrixHashKeyInBoundMegOlm *)a;
+    hk_b = (const MatrixHashKeyInBoundMegOlm *)b;
+
+    return !strcmp(hk_a->sender_key, hk_b->sender_key) &&
+           !strcmp(hk_a->sender_id, hk_b->sender_id) &&
+           !strcmp(hk_a->session_id, hk_b->session_id) &&
+           !strcmp(hk_a->device_id, hk_b->device_id);
+}
+
+/* GHashFunc for a _MatrixHashKeyInBoundMegOlm */
+static guint megolm_inbound_hash(gconstpointer a)
+{
+    const MatrixHashKeyInBoundMegOlm *hk;
+    hk = (const MatrixHashKeyInBoundMegOlm *)a;
+
+    return g_str_hash(hk->sender_key) +
+           g_str_hash(hk->session_id) +
+           g_str_hash(hk->sender_id) +
+           g_str_hash(hk->device_id);
+}
+
+static MatrixE2ERoomData *get_e2e_room_data(PurpleConversation *conv)
+{
+    MatrixE2ERoomData *result;
+
+    result = purple_conversation_get_data(conv, PURPLE_CONV_E2E_STATE);
+    if (!result) {
+        result = g_new0(MatrixE2ERoomData, 1);
+        purple_conversation_set_data(conv, PURPLE_CONV_E2E_STATE, result);
+    }
+
+    return result;
+}
+
+static GHashTable *get_e2e_inbound_megolm_hash(PurpleConversation *conv)
+{
+    MatrixE2ERoomData *rd = get_e2e_room_data(conv);
+
+    if (!rd->megolm_sessions_inbound) {
+        // TODO: Handle deallocation
+        rd->megolm_sessions_inbound = g_hash_table_new(megolm_inbound_hash,
+                                                       megolm_inbound_equality);
+    }
+
+    return rd->megolm_sessions_inbound;
+}
+
+static OlmInboundGroupSession *get_inbound_megolm_session(
+       PurpleConversation *conv,
+        const gchar *sender_key, const gchar *sender_id,
+        const gchar *session_id, const gchar *device_id)
+{
+    MatrixHashKeyInBoundMegOlm match;
+    match.sender_key = (gchar *)sender_key;
+    match.sender_id = (gchar *)sender_id;
+    match.session_id = (gchar *)session_id;
+    match.device_id = (gchar *)device_id;
+
+    OlmInboundGroupSession *result =
+       (OlmInboundGroupSession *)g_hash_table_lookup(
+               get_e2e_inbound_megolm_hash(conv), &match);
+    purple_debug_info("matrixprpl",  "%s: %s/%s/%s/%s: %p\n",
+                      __func__, device_id, sender_id, sender_key, session_id,
+                      result);
+    return result;
+}
+
+static void store_inbound_megolm_session(PurpleConversation *conv,
+        const gchar *sender_key, const gchar *sender_id,
+        const gchar *session_id, const gchar *device_id,
+        OlmInboundGroupSession *igs) {
+    MatrixHashKeyInBoundMegOlm *key = g_new0(MatrixHashKeyInBoundMegOlm, 1);
+    key->sender_key = g_strdup(sender_key);
+    key->sender_id = g_strdup(sender_id);
+    key->session_id = g_strdup(session_id);
+    key->device_id = g_strdup(device_id);
+    purple_debug_info("matrixprpl", "%s: %s/%s/%s/%s\n",
+               __func__, device_id, sender_id, sender_key, session_id);
+    g_hash_table_insert(get_e2e_inbound_megolm_hash(conv), key, igs);
 }
 
 /* Sign the JsonObject with olm_account_sign and add it to the object
