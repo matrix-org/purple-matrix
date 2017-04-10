@@ -703,8 +703,60 @@ void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
     conn->e2e = NULL;
 }
 
+/*
+ * See:
+ * https://matrix.org/docs/guides/e2e_implementation.html#handling-an-m-room-encrypted-event
+ * For decrypting d2d messages
+ * TODO: We really need to build a queue of stuff to decrypt, especially since they take multiple
+ * messages to deal with when we have to fetch stuff/validate a device id
+ */
+void matrix_e2e_decrypt_d2d(PurpleConnection *pc, JsonObject *cevent)
+{
+    MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+    const gchar *cevent_type;
+    const gchar *cevent_sender;
+    cevent_type = matrix_json_object_get_string_member(cevent, "type");
+    cevent_sender = matrix_json_object_get_string_member(cevent, "sender");
+    purple_debug_info("matrixprpl", "%s: %s from %s\n", __func__, cevent_type,
+                       cevent_sender);
+
+    if (strcmp(cevent_type, "m.room.encrypted")) {
+        purple_debug_info("matrixprpl", "%s: %s unexpected type\n",
+                               __func__, cevent_type);
+        goto out;
+    }
+
+    JsonObject *cevent_content = matrix_json_object_get_object_member(cevent,
+                                                               "content");
+    const gchar *cevent_algo;
+    cevent_algo = matrix_json_object_get_string_member(cevent_content,
+                                                       "algorithm");
+    if (!cevent_algo) {
+        purple_debug_info("matrixprpl",
+           "%s: Encrypted event doesn't have algorithm entry\n", __func__);
+        goto out;
+    }
+
+    if (!strcmp(cevent_algo, "m.olm.v1.curve25519-aes-sha2")) {
+        // TODO: call decrypt_olm(pc, conn, cevent, cevent_content);
+    } else if (!strcmp(cevent_algo, "m.megolm.v1.aes-sha2")) {
+        purple_debug_info("matrixprpl",
+           "%s: It's megolm - unexpected for d2d!\n", __func__);
+    } else {
+        purple_debug_info("matrixprpl",
+           "%s: Unknown crypto algorithm %s\n", __func__, cevent_algo);
+    }
+
+out:
+    return;
+}
+
 #else
 /* ==== Stubs for when e2e is configured out of the build === */
+void matrix_e2e_decrypt_d2d(PurpleConnection *pc, JsonObject *cevent)
+{
+}
+
 int matrix_e2e_get_device_keys(MatrixConnectionData *conn, const gchar *device_id)
 {
     return -1;
