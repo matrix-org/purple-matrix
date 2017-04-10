@@ -710,6 +710,91 @@ void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
     }
 }
 
+/* Called from decypt_olm after we've decrypted an olm message.
+ */
+static int handle_decrypted_olm(PurpleConnection *pc,
+                                MatrixConnectionData *conn,
+                                const gchar *sender,
+                                const gchar *sender_key, gchar *plaintext)
+{
+    JsonParser *json_parser = json_parser_new();
+    GError *err = NULL;
+    int ret = 0;
+
+    purple_debug_info("matrixprpl", "%s: %s\n", __func__, plaintext);
+    if (!json_parser_load_from_data(json_parser, plaintext, strlen(plaintext),
+                                       &err)) {
+        purple_connection_error_reason(pc,
+                PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                "Failed to parse decrypted olm JSON");
+        purple_debug_info("matrixprpl",
+                "unable to parse decrypted olm JSON: %s",
+                err->message);
+        g_error_free(err);
+        ret = -1;
+        goto out;
+
+    }
+    JsonNode *pt_node = json_parser_get_root(json_parser);
+    JsonObject *pt_body = matrix_json_node_get_object(pt_node);
+
+    /* The spec says we need to check these actually match */
+    const gchar *pt_sender, *pt_sender_device, *pt_recipient, *pt_recipient_ed;
+    const gchar *pt_type;
+    pt_sender = matrix_json_object_get_string_member(pt_body, "sender");
+    pt_sender_device = matrix_json_object_get_string_member(pt_body,
+                                                            "sender_device");
+    pt_recipient = matrix_json_object_get_string_member(pt_body, "recipient");
+    JsonObject *pt_recipient_keys =
+               matrix_json_object_get_object_member(pt_body, "recipient_keys");
+    pt_recipient_ed = matrix_json_object_get_string_member(pt_recipient_keys,
+                                                           "ed25519");
+    pt_type = matrix_json_object_get_string_member(pt_body, "type");
+
+    if (!pt_sender || !pt_sender_device || !pt_recipient ||
+        !pt_recipient_ed || !pt_type) {
+        purple_debug_info("matrixprpl",
+                          "%s: Missing field\n", __func__);
+        ret = -1;
+        goto out;
+    }
+    if (strcmp(sender, pt_sender)) {
+        purple_debug_info("matrixprpl",
+           "%s: Mismatch on sender '%s' vs '%s'\n",
+           __func__, sender, pt_sender);
+        ret = -1;
+        goto out;
+    }
+    if (strcmp(conn->user_id, pt_recipient)) {
+        purple_debug_info("matrixprpl",
+                          "%s: Mismatch on recipient '%s' vs '%s'\n",
+                          __func__, conn->user_id, pt_recipient);
+        ret = -1;
+        goto out;
+    }
+    if (strcmp(conn->e2e->ed25519_pubkey, pt_recipient_ed)) {
+        purple_debug_info("matrixprpl",
+           "%s: Mismatch on recipient key '%s' vs '%s' pt_recipient_keys=%p\n",
+           __func__, conn->e2e->ed25519_pubkey, pt_recipient_ed,
+           pt_recipient_keys);
+        ret = -1;
+        goto out;
+    }
+
+    /* TODO: check the device against the keys in use, stash somewhere? */
+    if (!strcmp(pt_type, "m.room_key")) {
+        //ret = handle_m_room_key(pc, conn, pt_sender, sender_key,
+        //                        pt_sender_device, pt_body);
+    } else {
+        purple_debug_info("matrixprpl",
+                          "%s: Got '%s' from '%s'/'%s'\n",
+                          __func__, pt_type, pt_sender_device, pt_sender);
+    }
+out:
+    g_object_unref(json_parser);
+    return ret;
+}
+
 /*
  * See:
  * https://matrix.org/docs/guides/e2e_implementation.html#m-olm-v1-curve25519-aes-sha2
@@ -807,6 +892,7 @@ static void decrypt_olm(PurpleConnection *pc, MatrixConnectionData *conn, JsonOb
             goto err;
         }
         plaintext[pt_len] = '\0';
+        handle_decrypted_olm(pc, conn, cevent_sender, sender_key, plaintext);
         // TODO: Store session in db
     } else {
         purple_debug_info("matrixprpl", "%s: Type %zd olm\n", __func__, type);
