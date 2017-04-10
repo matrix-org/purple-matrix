@@ -16,6 +16,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111-1301 USA
  */
 
+#include <string.h>
 #include "matrix-sync.h"
 
 /* json-glib */
@@ -28,6 +29,7 @@
 
 /* libmatrix */
 #include "matrix-connection.h"
+#include "matrix-e2e.h"
 #include "matrix-event.h"
 #include "matrix-json.h"
 #include "matrix-room.h"
@@ -124,7 +126,8 @@ static PurpleChat *_ensure_blist_entry(PurpleAccount *acct,
  * handle a joined room within the sync response
  */
 static void matrix_sync_room(const gchar *room_id,
-        JsonObject *room_data, PurpleConnection *pc)
+        JsonObject *room_data, PurpleConnection *pc,
+        gboolean handle_timeline)
 {
     JsonObject *state_object, *timeline_object, *ephemeral_object;
     JsonArray *state_array, *timeline_array, *ephemeral_array;
@@ -150,20 +153,22 @@ static void matrix_sync_room(const gchar *room_id,
 
     matrix_room_complete_state_update(conv, !initial_sync);
 
-    /* parse the timeline events */
-    timeline_object = matrix_json_object_get_object_member(
-                room_data, "timeline");
-    timeline_array = matrix_json_object_get_array_member(
-                timeline_object, "events");
-    if(timeline_array != NULL)
-        _parse_room_event_array(conv, timeline_array, FALSE);
-
     /* parse the ephemeral events */
     /* (uses the state table to track the state of who is typing and who isn't) */
     ephemeral_object = matrix_json_object_get_object_member(room_data, "ephemeral");
     ephemeral_array = matrix_json_object_get_array_member(ephemeral_object, "events");
     if(ephemeral_array != NULL)
         _parse_room_event_array(conv, ephemeral_array, TRUE);
+
+    if (handle_timeline) {
+        /* parse the timeline events */
+        timeline_object = matrix_json_object_get_object_member(
+                    room_data, "timeline");
+        timeline_array = matrix_json_object_get_array_member(
+                    timeline_object, "events");
+        if(timeline_array != NULL)
+            _parse_room_event_array(conv, timeline_array, FALSE);
+    }
 }
 
 
@@ -278,8 +283,8 @@ void matrix_sync_parse(PurpleConnection *pc, JsonNode *body,
             const gchar *room_id = elem->data;
             JsonObject *room_data = matrix_json_object_get_object_member(
                     joined_rooms, room_id);
-            purple_debug_info("matrixprpl", "Syncing room %s\n", room_id);
-            matrix_sync_room(room_id, room_data, pc);
+            purple_debug_info("matrixprpl", "Syncing room (1)%s\n", room_id);
+            matrix_sync_room(room_id, room_data, pc, FALSE);
         }
         g_list_free(room_ids);
     }
@@ -298,5 +303,41 @@ void matrix_sync_parse(PurpleConnection *pc, JsonNode *body,
         g_list_free(room_ids);
     }
 
+    /* Handle d2d messages so we can create any e2e sessions needed
+     * We need to do this after we created rooms/conversations, but before
+     * we handle timeline events that we might need to decrypt.
+     */
+    JsonObject *to_device = matrix_json_object_get_object_member(rootObj,
+                               "to_device");
+    if (to_device) {
+        JsonArray *events = matrix_json_object_get_array_member(to_device,
+                                                               "events");
+        guint i = 0;
+        JsonNode *device_event;
+        while (device_event = matrix_json_array_get_element(events, i++),
+               device_event) {
+            JsonObject *event_obj = matrix_json_node_get_object(device_event);
+            const gchar *event_type;
+            event_type = matrix_json_object_get_string_member(event_obj,
+                                                               "type");
+            purple_debug_info("matrixprpl",  "to_device: Got %s from %s\n",
+                    event_type,
+                    matrix_json_object_get_string_member(event_obj, "sender"));
+            // TODO Handle some events
+        }
+    }
+
+    /* Now go round the rooms again getting the timeline events */
+    if (joined_rooms != NULL) {
+        room_ids = json_object_get_members(joined_rooms);
+        for(elem = room_ids; elem; elem = elem->next) {
+            const gchar *room_id = elem->data;
+            JsonObject *room_data = matrix_json_object_get_object_member(
+                    joined_rooms, room_id);
+            purple_debug_info("matrixprpl", "Syncing room (2) %s\n", room_id);
+            matrix_sync_room(room_id, room_data, pc, TRUE);
+        }
+        g_list_free(room_ids);
+    }
 }
 
