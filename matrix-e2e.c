@@ -680,6 +680,119 @@ out:
 
 /*
  * See:
+ * https://matrix.org/docs/guides/e2e_implementation.html#m-olm-v1-curve25519-aes-sha2
+ * TODO: All the error paths in this function need to clean up!
+ */
+static void decrypt_olm(PurpleConnection *pc, MatrixConnectionData *conn, JsonObject *cevent,
+                                   JsonObject *cevent_content)
+{
+    const gchar *cevent_sender;
+    const gchar *sender_key;
+    JsonObject *cevent_ciphertext;
+    gchar *cevent_body_copy = NULL;
+    gchar *plaintext = NULL;
+    OlmSession *session = NULL;
+    cevent_sender = matrix_json_object_get_string_member(cevent, "sender");
+    sender_key = matrix_json_object_get_string_member(cevent_content,
+                                                       "sender_key");
+    cevent_ciphertext = matrix_json_object_get_object_member(cevent_content,
+                                                               "ciphertext");
+    /* TODO: Look up sender_key - I think we need to check this against device
+     * list from user? */
+
+    if (!cevent_ciphertext || !sender_key) {
+        purple_debug_info("matrixprpl",
+                               "%s: no ciphertext or sender_key in olm event\n",
+                               __func__);
+        goto err;
+    }
+    JsonObject *our_ciphertext;
+    our_ciphertext = matrix_json_object_get_object_member(cevent_ciphertext,
+                                               conn->e2e->curve25519_pubkey);
+    if (!our_ciphertext) {
+        purple_debug_info("matrixprpl",
+                          "%s: No ciphertext with our curve25519 pubkey\n",
+                          __func__);
+        goto err;
+    }
+    JsonNode *type_node = matrix_json_object_get_member(our_ciphertext, "type");
+    if (!type_node) {
+        purple_debug_info("matrixprpl", "%s: No type node\n", __func__);
+        goto err;
+    }
+
+    gint64 type = matrix_json_node_get_int(type_node);
+    purple_debug_info("matrixprpl",
+                      "%s: Type %zd olm encrypted message from %s\n",
+                      __func__, (size_t)type, cevent_sender);
+    if (!type) {
+        /* A 'prekey' message to establish an Olm session
+         * TODO!!!!: Try existing sessions and check with
+         * matches_inbound_session */
+        session = olm_session(g_malloc0(olm_session_size()));
+        const gchar *cevent_body;
+        cevent_body = matrix_json_object_get_string_member(our_ciphertext,
+                                                               "body");
+        gchar *cevent_body_copy = g_strdup(cevent_body);
+        if (olm_create_inbound_session_from(session, conn->e2e->oa, sender_key,
+                                               strlen(sender_key),
+                                        cevent_body_copy, strlen(cevent_body))
+            == olm_error()) {
+            purple_debug_info("matrixprpl",
+                              "%s: prekey inbound_session_from failed : %s\n",
+                    __func__, olm_session_last_error(session));
+            goto err;
+        }
+        if (olm_remove_one_time_keys(conn->e2e->oa, session) == olm_error()) {
+            purple_debug_info("matrixprpl",
+                              "%s: Failed to remove 1tk, inbound session: %s\n",
+                    __func__, olm_account_last_error(conn->e2e->oa));
+            goto err;
+        }
+        cevent_body_copy = g_strdup(cevent_body);
+        size_t max_plaintext_len = olm_decrypt_max_plaintext_length(session,
+                                       0 /* Prekey */,
+                                       cevent_body_copy,
+                                       strlen(cevent_body_copy));
+        if (max_plaintext_len == olm_error()) {
+            purple_debug_info("matrixprpl",
+                              "%s: Failed to get plaintext length %s\n",
+                              __func__, olm_session_last_error(session));
+            goto err;
+        }
+        plaintext = g_malloc0(max_plaintext_len + 1);
+        cevent_body_copy = g_strdup(cevent_body);
+
+        size_t pt_len = olm_decrypt(session, 0 /* Prekey */, cevent_body_copy,
+                                       strlen(cevent_body),
+                                       plaintext, max_plaintext_len);
+        if (pt_len == olm_error() || pt_len >= max_plaintext_len) {
+            purple_debug_info("matrixprpl",
+                              "%s: Failed to decrypt inbound session creation"
+                              " event: %s\n",
+                              __func__, olm_session_last_error(session));
+            goto err;
+        }
+        plaintext[pt_len] = '\0';
+        // TODO: Store session in db
+    } else {
+        purple_debug_info("matrixprpl", "%s: Type %zd olm\n", __func__, type);
+    }
+    // TODO  resave account? Or just session?
+    //
+    g_free(plaintext);
+    g_free(cevent_body_copy);
+
+    return;
+
+err:
+    g_free(plaintext);
+    g_free(cevent_body_copy);
+    g_free(session);
+}
+
+/*
+ * See:
  * https://matrix.org/docs/guides/e2e_implementation.html#handling-an-m-room-encrypted-event
  * For decrypting d2d messages
  * TODO: We really need to build a queue of stuff to decrypt, especially since they take multiple
@@ -713,7 +826,7 @@ void matrix_e2e_decrypt_d2d(PurpleConnection *pc, JsonObject *cevent)
     }
 
     if (!strcmp(cevent_algo, "m.olm.v1.curve25519-aes-sha2")) {
-        // TODO: return decrypt_olm(pc, conn, cevent, cevent_content);
+        return decrypt_olm(pc, conn, cevent, cevent_content);
     } else if (!strcmp(cevent_algo, "m.megolm.v1.aes-sha2")) {
         purple_debug_info("matrixprpl",
            "%s: It's megolm - unexpected for d2d!\n", __func__);
