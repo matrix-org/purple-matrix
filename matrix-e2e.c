@@ -287,6 +287,88 @@ bad_sql:
     return result;
 }
 
+static void free_matrix_olm_session(MatrixOlmSession *msession,
+                                    gboolean free_session)
+{
+    g_free(msession->sender_id);
+    g_free(msession->sender_key);
+    if (free_session) {
+        g_free(msession->session);
+    }
+}
+
+/* Save a new OLM session into the database */
+static MatrixOlmSession *store_olm_session(MatrixConnectionData *conn,
+                                           OlmSession *session,
+                                           const char *sender,
+                                           const char *sender_key)
+{
+    MatrixOlmSession *cur_entry = g_new(MatrixOlmSession, 1);
+    size_t pickle_len = olm_pickle_session_length(session);
+    gchar *pickle = g_malloc(pickle_len+1);
+    sqlite3_stmt *dbstmt = NULL;
+
+    pickle_len = olm_pickle_session(session, "!", 1, pickle, pickle_len);
+    if (pickle_len == olm_error()) {
+        purple_debug_warning("matrixprpl",
+                             "%s: Failed to pickle session for %s/%s: %s\n",
+                             __func__, sender, sender_key,
+                             olm_session_last_error(session));
+        goto err;
+    }
+    pickle[pickle_len] = '\0';
+
+    cur_entry->sender_id = g_strdup(sender);
+    cur_entry->sender_key = g_strdup(sender_key);
+    cur_entry->session = session;
+    cur_entry->unique = g_get_monotonic_time();
+    cur_entry->next = conn->e2e->olm_session_list;
+
+    const char *query = "INSERT into olmsessions "
+                        "(sender_name, sender_key, session_pickle, uniquifier) "
+                        "VALUES (?, ?, ?, ?)";
+
+    int ret = sqlite3_prepare_v2(conn->e2e->db, query, -1, &dbstmt, NULL);
+    if (ret != SQLITE_OK || !dbstmt) {
+        purple_debug_warning("matrixprpl",
+                             "%s: Failed to prep insert %d '%s'\n",
+                             __func__, ret, query);
+        goto err;
+    }
+    ret = sqlite3_bind_text(dbstmt, 1, sender, -1, NULL);
+    if (ret == SQLITE_OK) {
+        ret = sqlite3_bind_text(dbstmt, 2, sender_key, -1, NULL);
+    }
+    if (ret == SQLITE_OK) {
+        ret = sqlite3_bind_text(dbstmt, 3, pickle, -1, NULL);
+    }
+    if (ret == SQLITE_OK) {
+        ret = sqlite3_bind_int64(dbstmt, 4, cur_entry->unique);
+    }
+    if (ret != SQLITE_OK) {
+        purple_debug_warning("matrixprpl",
+                             "%s: Failed to bind %d\n", __func__, ret);
+        goto err;
+    }
+
+    ret = sqlite3_step(dbstmt);
+    if (ret != SQLITE_DONE) {
+        purple_debug_warning("matrixprpl",
+                             "%s: Insert failed %d (%s)\n", __func__,
+                             ret, query);
+        goto err;
+    }
+    sqlite3_finalize(dbstmt);
+
+    conn->e2e->olm_session_list = cur_entry;
+    return cur_entry;
+
+err:
+    g_free(pickle);
+    free_matrix_olm_session(cur_entry, FALSE);
+    return NULL;
+}
+
 static void key_upload_callback(MatrixConnectionData *conn,
                                 gpointer user_data,
                                 struct _JsonNode *json_root,
@@ -1167,6 +1249,10 @@ static void decrypt_olm(PurpleConnection *pc, MatrixConnectionData *conn, JsonOb
                     __func__, olm_account_last_error(conn->e2e->oa));
                 g_free(session);
                 goto err;
+            }
+            mos = store_olm_session(conn, session, cevent_sender, sender_key);
+            if (!mos) {
+                return;
             }
         }
         session = mos->session;
