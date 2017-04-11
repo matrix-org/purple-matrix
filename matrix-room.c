@@ -31,6 +31,7 @@
 
 #include "libmatrix.h"
 #include "matrix-api.h"
+#include "matrix-e2e.h"
 #include "matrix-event.h"
 #include "matrix-json.h"
 #include "matrix-roommembers.h"
@@ -290,6 +291,9 @@ static void _on_state_update(const gchar *event_type,
             strcmp(event_type, "m.room.canonical_alias") == 0 ||
             strcmp(event_type, "m.room.name") == 0) {
         _schedule_name_update(conv);
+    } else if (strcmp(event_type, "m.room.encryption") == 0) {
+        purple_debug_info("matrixprpl",
+                          "Got m.room.encryption on_state_update\n");
     }
     else if(strcmp(event_type, "m.typing") == 0) {
         _on_typing(conv, old_state, new_state);
@@ -944,6 +948,12 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
 
     if(event_type == NULL) {
         purple_debug_warning("matrixprpl", "event missing type field");
+        return;
+    }
+
+    if(!strcmp(event_type, "m.room.encrypted")) {
+        purple_debug_info("matrixprpl", "Got an m.room.encrypted!\n");
+        matrix_e2e_decrypt_room(conv, json_event_obj);
         return;
     }
 

@@ -1139,9 +1139,122 @@ out:
     return;
 }
 
+void matrix_e2e_decrypt_room(PurpleConversation *conv,
+                             struct _JsonObject *cevent)
+{
+    JsonObject *cevent_content;
+    const gchar *cevent_sender, *cevent_sender_key, *cevent_session_id;
+    const gchar *algorithm, *cevent_ciphertext, *cevent_device_id;
+    gchar *dupe_ciphertext = NULL;
+    gchar *plaintext = NULL;
+    size_t maxlen = 0;
+
+    cevent_sender = matrix_json_object_get_string_member(cevent, "sender");
+    cevent_content = matrix_json_object_get_object_member(cevent, "content");
+    cevent_sender_key = matrix_json_object_get_string_member(cevent_content,
+                                                               "sender_key");
+    cevent_session_id = matrix_json_object_get_string_member(cevent_content,
+                                                               "session_id");
+    cevent_device_id = matrix_json_object_get_string_member(cevent_content,
+                                                               "device_id");
+    algorithm = matrix_json_object_get_string_member(cevent_content,
+                                                       "algorithm");
+    cevent_ciphertext = matrix_json_object_get_string_member(cevent_content,
+                                                               "ciphertext");
+
+    if (!algorithm || strcmp(algorithm, "m.megolm.v1.aes-sha2")) {
+        purple_debug_info("matrixprpl", "%s: Bad algorithm %s\n",
+                               __func__, algorithm);
+        return;
+    }
+
+    if (!cevent_sender || !cevent_content || !cevent_sender_key ||
+        !cevent_session_id || !cevent_device_id || !cevent_ciphertext) {
+        purple_debug_info("matrixprpl",
+                          "%s: Missing field sender: %s content: %p "
+                          "sender_key: %s session_id: %s device_id: %s "
+                          "ciphertext: %s\n",
+                               __func__, cevent_sender, cevent_content,
+                               cevent_sender_key, cevent_session_id,
+                               cevent_device_id, cevent_ciphertext);
+        return;
+    }
+
+    OlmInboundGroupSession *oigs = get_inbound_megolm_session(conv,
+                                               cevent_sender_key,
+                                               cevent_sender, cevent_session_id,
+                                               cevent_device_id);
+    if (!oigs) {
+        // TODO: Queue this message and decrypt it when we get the session?
+        // TODO: Check device verification state?
+        purple_debug_info("matrixprpl",
+                          "%s: No Megolm session for %s/%s/%s/%s\n", __func__,
+                          cevent_device_id, cevent_sender, cevent_sender_key,
+                          cevent_session_id);
+        return;
+    }
+    purple_debug_info("matrixprpl",
+                      "%s: have Megolm session %p for %s/%s/%s/%s\n",
+                      __func__, oigs, cevent_device_id, cevent_sender,
+                      cevent_sender_key, cevent_session_id);
+    dupe_ciphertext = g_strdup(cevent_ciphertext);
+    maxlen = olm_group_decrypt_max_plaintext_length(oigs,
+                       (uint8_t *)dupe_ciphertext,
+                       strlen(dupe_ciphertext));
+    if (maxlen == olm_error()) {
+        purple_debug_info("matrixprpl",
+                          "%s: olm_group_decrypt_max_plaintext_length says "
+                          "%s for %s/%s/%s/%s\n",
+                __func__, olm_inbound_group_session_last_error(oigs),
+                cevent_device_id, cevent_sender, cevent_sender_key,
+                cevent_session_id);
+        goto out;
+    }
+    dupe_ciphertext = g_strdup(cevent_ciphertext);
+    plaintext = g_malloc0(maxlen+1);
+    uint32_t index;
+    size_t decrypt_len = olm_group_decrypt(oigs, (uint8_t *)dupe_ciphertext,
+                                           strlen(dupe_ciphertext),
+                                           (uint8_t *)plaintext, maxlen,
+                                           &index);
+    if (decrypt_len == olm_error()) {
+        purple_debug_info("matrixprpl",
+                "%s: olm_group_decrypt says %s for %s/%s/%s/%s\n",
+                __func__, olm_inbound_group_session_last_error(oigs),
+                cevent_device_id, cevent_sender, cevent_sender_key,
+                cevent_session_id);
+        goto out;
+    }
+
+    if (decrypt_len > maxlen) {
+        purple_debug_info("matrixprpl",
+                "%s: olm_group_decrypt len=%zd max was supposed to be %zd\n",
+                __func__, decrypt_len, maxlen);
+        goto out;
+    }
+    plaintext[decrypt_len] = '\0';
+    purple_debug_info("matrixprpl",
+                      "%s: Decrypted megolm event as '%s' index=%zd\n",
+                      __func__, plaintext, (size_t)index);
+    // TODO: Stash index somewhere - supposed to check it for validity
+    // TODO: JSON parse it and then send it back to matrix_room_handle_timeline_event
+
+out:
+    g_free(dupe_ciphertext);
+    if (plaintext) {
+        clear_mem(plaintext, maxlen);
+    }
+    g_free(plaintext);
+}
+
 #else
 /* ==== Stubs for when e2e is configured out of the build === */
 void matrix_e2e_decrypt_d2d(PurpleConnection *pc, JsonObject *cevent)
+{
+}
+
+void matrix_e2e_decrypt_room(PurpleConversation *conv,
+                             struct _JsonObject *cevent)
 {
 }
 
