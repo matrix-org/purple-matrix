@@ -23,8 +23,10 @@
 #include "matrix-connection.h"
 
 typedef struct _MatrixE2EData MatrixE2EData;
+typedef struct _PurpleConversation PurpleConversation;
 
 int matrix_e2e_get_device_keys(MatrixConnectionData *conn, const gchar *device_id);
 void matrix_e2e_decrypt_d2d(struct _PurpleConnection *pc, struct _JsonObject *event);
+void matrix_e2e_decrypt_room(struct _PurpleConversation *conv, struct _JsonObject *event);
 
 #endif
