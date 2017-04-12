@@ -33,6 +33,13 @@
 #include "connection.h"
 #include "olm/olm.h"
 
+/* TODO:
+ *   Clean up megolm sessions at logout
+ *   Store megolm sessions to db
+ *   Deal with incoming encrypted images
+ *   Sending
+ *   A device database and trust
+ */
 struct _MatrixOlmSession;
 
 struct _MatrixE2EData {
