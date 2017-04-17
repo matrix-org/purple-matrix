@@ -875,10 +875,8 @@ MatrixApiRequestData *matrix_api_download_file(MatrixConnectionData *conn,
         return NULL;
     }
     url = g_string_new(conn->homeserver);
-    g_string_append(url, "/_matrix/media/r0/download/");
+    g_string_append(url, "_matrix/media/r0/download/");
     g_string_append(url, uri + 6); /* i.e. after the mxc:// */
-    g_string_append(url, "?access_token=");
-    g_string_append(url, purple_url_encode(conn->access_token));
 
     /* I'd like to validate the headers etc a bit before downloading the
      * data (maybe using _handle_header_completed), also I'm not convinced
