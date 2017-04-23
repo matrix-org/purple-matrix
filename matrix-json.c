@@ -24,39 +24,39 @@
 
 const gchar *matrix_json_node_get_string(JsonNode *node)
 {
-	if(node == NULL)
-		return NULL;
-	if(JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
-		return NULL;
-	return json_node_get_string(node);
+    if(node == NULL)
+        return NULL;
+    if(JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
+        return NULL;
+    return json_node_get_string(node);
 }
 
 gint64 matrix_json_node_get_int(JsonNode *node)
 {
-	if(node == NULL)
-		return 0;
-	if(JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
-		return 0;
-	return json_node_get_int(node);
+    if(node == NULL)
+        return 0;
+    if(JSON_NODE_TYPE(node) != JSON_NODE_VALUE)
+        return 0;
+    return json_node_get_int(node);
 }
 
 
 JsonObject *matrix_json_node_get_object (JsonNode *node)
 {
-	if(node == NULL)
-		return NULL;
-	if(JSON_NODE_TYPE(node) != JSON_NODE_OBJECT)
-		return NULL;
-	return json_node_get_object(node);
+    if(node == NULL)
+        return NULL;
+    if(JSON_NODE_TYPE(node) != JSON_NODE_OBJECT)
+        return NULL;
+    return json_node_get_object(node);
 }
 
 JsonArray *matrix_json_node_get_array(JsonNode *node)
 {
-	if(node == NULL)
-		return NULL;
-	if(JSON_NODE_TYPE(node) != JSON_NODE_ARRAY)
-		return NULL;
-	return json_node_get_array(node);
+    if(node == NULL)
+        return NULL;
+    if(JSON_NODE_TYPE(node) != JSON_NODE_ARRAY)
+        return NULL;
+    return json_node_get_array(node);
 }
 
 
@@ -64,47 +64,47 @@ JsonArray *matrix_json_node_get_array(JsonNode *node)
 /* object */
 
 JsonNode *matrix_json_object_get_member (JsonObject  *object,
-		const gchar *member_name)
+        const gchar *member_name)
 {
-	g_assert(member_name != NULL);
+    g_assert(member_name != NULL);
 
-	if(object == NULL)
-		return NULL;
+    if(object == NULL)
+        return NULL;
 
-	return json_object_get_member(object, member_name);
+    return json_object_get_member(object, member_name);
 }
 
 const gchar *matrix_json_object_get_string_member(JsonObject  *object,
-		const gchar *member_name)
+        const gchar *member_name)
 {
-	JsonNode *member;
-	member = matrix_json_object_get_member(object, member_name);
+    JsonNode *member;
+    member = matrix_json_object_get_member(object, member_name);
     return matrix_json_node_get_string(member);
 }
 
 gint64 matrix_json_object_get_int_member(JsonObject  *object,
-		const gchar *member_name)
+        const gchar *member_name)
 {
-	JsonNode *member;
-	member = matrix_json_object_get_member(object, member_name);
+    JsonNode *member;
+    member = matrix_json_object_get_member(object, member_name);
     return matrix_json_node_get_int(member);
 }
 
 
 JsonObject *matrix_json_object_get_object_member(JsonObject  *object,
-		const gchar *member_name)
+        const gchar *member_name)
 {
-	JsonNode *member;
-	member = matrix_json_object_get_member(object, member_name);
+    JsonNode *member;
+    member = matrix_json_object_get_member(object, member_name);
     return matrix_json_node_get_object(member);
 }
 
 
 JsonArray *matrix_json_object_get_array_member(JsonObject  *object,
-		const gchar *member_name)
+        const gchar *member_name)
 {
-	JsonNode *member;
-	member = matrix_json_object_get_member(object, member_name);
+    JsonNode *member;
+    member = matrix_json_object_get_member(object, member_name);
     return matrix_json_node_get_array(member);
 }
 
@@ -114,17 +114,17 @@ JsonArray *matrix_json_object_get_array_member(JsonObject  *object,
 JsonNode *matrix_json_array_get_element(JsonArray *array,
         guint index)
 {
-	if(array == NULL)
-		return NULL;
-	if(json_array_get_length(array) <= index)
-		return NULL;
-	return json_array_get_element(array, index);
+    if(array == NULL)
+        return NULL;
+    if(json_array_get_length(array) <= index)
+        return NULL;
+    return json_array_get_element(array, index);
 }
 
 const gchar *matrix_json_array_get_string_element(JsonArray *array,
         guint index)
 {
-	JsonNode *element;
-	element = matrix_json_array_get_element(array, index);
-	return matrix_json_node_get_string(element);
+    JsonNode *element;
+    element = matrix_json_array_get_element(array, index);
+    return matrix_json_node_get_string(element);
 }
