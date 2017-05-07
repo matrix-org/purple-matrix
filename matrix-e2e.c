@@ -31,6 +31,21 @@ struct _MatrixE2EData {
     gchar *device_id;
 };
 
+/* Really clear an area of memory */
+static void clear_mem(volatile char *data, size_t len)
+{
+#ifdef __STDC_LIB_EXT1__
+    /* Untested! */
+    memset_s(data, len, '\0', len);
+#else
+    size_t index;
+    for(index = 0;index < len; index ++)
+    {
+        data[index] = '\0';
+    }
+#endif
+}
+
 /* Sign the JsonObject with olm_account_sign and add it to the object
  * as a 'signatures' member of the top level object.
  * 0 on success
