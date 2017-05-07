@@ -32,6 +32,21 @@ struct _MatrixE2EData {
     gchar *device_id;
 };
 
+/* Really clear an area of memory */
+static void clear_mem(volatile char *data, size_t len)
+{
+#ifdef __STDC_LIB_EXT1__
+    /* Untested! */
+    memset_s(data, len, '\0', len);
+#else
+    size_t index;
+    for(index = 0;index < len; index ++)
+    {
+        data[index] = '\0';
+    }
+#endif
+}
+
 /* Returns the list of algorithms and our keys for those algorithms on the current account */
 static int get_id_keys(PurpleConnection *pc, OlmAccount *account, gchar ***algorithms, gchar ***keys)
 {
