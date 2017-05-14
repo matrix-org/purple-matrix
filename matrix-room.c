@@ -980,6 +980,7 @@ void matrix_room_leave_chat(PurpleConversation *conv)
         g_list_free_full(event_queue, (GDestroyNotify)matrix_event_free);
         purple_conversation_set_data(conv, PURPLE_CONV_DATA_EVENT_QUEUE, NULL);
     }
+    matrix_e2e_cleanup_conversation(conv);
 }
 
 
