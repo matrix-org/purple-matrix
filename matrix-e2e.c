@@ -152,6 +152,23 @@ static guint megolm_inbound_hash(gconstpointer a)
            g_str_hash(hk->device_id);
 }
 
+static void megolm_inbound_key_destroy(gpointer v)
+{
+    MatrixHashKeyInBoundMegOlm *key = v;
+    g_free(key->sender_key);
+    g_free(key->session_id);
+    g_free(key->sender_id);
+    g_free(key->device_id);
+}
+
+static void megolm_inbound_value_destroy(gpointer v)
+{
+    OlmInboundGroupSession *oigs = v;
+
+    olm_clear_inbound_group_session(oigs);
+    g_free(oigs);
+}
+
 static MatrixE2ERoomData *get_e2e_room_data(PurpleConversation *conv)
 {
     MatrixE2ERoomData *result;
@@ -170,9 +187,10 @@ static GHashTable *get_e2e_inbound_megolm_hash(PurpleConversation *conv)
     MatrixE2ERoomData *rd = get_e2e_room_data(conv);
 
     if (!rd->megolm_sessions_inbound) {
-        // TODO: Handle deallocation
-        rd->megolm_sessions_inbound = g_hash_table_new(megolm_inbound_hash,
-                                                       megolm_inbound_equality);
+        rd->megolm_sessions_inbound = g_hash_table_new_full(megolm_inbound_hash,
+                                                   megolm_inbound_equality,
+                                                   megolm_inbound_key_destroy,
+                                                   megolm_inbound_value_destroy);
     }
 
     return rd->megolm_sessions_inbound;
@@ -1185,8 +1203,25 @@ out:
     return ret;
 }
 
+void matrix_e2e_cleanup_conversation(PurpleConversation *conv)
+{
+    MatrixE2ERoomData *result = purple_conversation_get_data(conv,
+                                                     PURPLE_CONV_E2E_STATE);
+    if (result) {
+        g_hash_table_destroy(result->megolm_sessions_inbound);
+        g_free(result);
+        purple_conversation_set_data(conv, PURPLE_CONV_E2E_STATE, NULL);
+    }
+}
+
 void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
 {
+    GList *ptr;
+    for(ptr = purple_get_conversations(); ptr != NULL; ptr = g_list_next(ptr))
+    {
+        PurpleConversation *conv = ptr->data;
+        matrix_e2e_cleanup_conversation(conv);
+    }
     if (conn->e2e) {
         close_e2e_db(conn);
         g_hash_table_destroy(conn->e2e->olm_session_hash);
@@ -1691,6 +1726,10 @@ void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
 
 void matrix_e2e_handle_sync_key_counts(PurpleConnection *pc, JsonObject *count_object,
                                        gboolean force_send)
+{
+}
+
+void matrix_e2e_cleanup_conversation(PurpleConversation *conv)
 {
 }
 
