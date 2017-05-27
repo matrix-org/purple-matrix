@@ -25,6 +25,7 @@
 typedef struct _MatrixE2EData MatrixE2EData;
 typedef struct _PurpleConversation PurpleConversation;
 
+GList *matrix_e2e_actions(GList *list);
 int matrix_e2e_get_device_keys(MatrixConnectionData *conn, const gchar *device_id);
 void matrix_e2e_cleanup_connection(MatrixConnectionData *conn);
 void matrix_e2e_cleanup_conversation(PurpleConversation *conv);
