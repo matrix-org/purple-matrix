@@ -1703,6 +1703,32 @@ out:
     return plaintext_parser;
 }
 
+static void action_device_info(PurplePluginAction *action)
+{
+    PurpleConnection *pc = (PurpleConnection *) action->context;
+
+    if (!pc) return;
+    MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+    if (!conn || !conn->e2e) return;
+    char *title = g_strdup_printf("Device info for %s", conn->user_id);
+    char *body = g_strdup_printf("Device ID: %s"
+                                 "<br>Device Key: %s",
+                                 conn->e2e->device_id,
+                                 conn->e2e->ed25519_pubkey);
+    purple_notify_formatted(pc, title, title, NULL, body, NULL, NULL);
+    g_free(title);
+    g_free(body);
+}
+
+/* Hook for adding purple 'action' menu items */
+GList *matrix_e2e_actions(GList *list)
+{
+    list = g_list_append(list,
+                         purple_plugin_action_new(_("Device info"),
+                                                 action_device_info));
+    return list;
+}
+
 #else
 /* ==== Stubs for when e2e is configured out of the build === */
 void matrix_e2e_decrypt_d2d(PurpleConnection *pc, JsonObject *cevent)
@@ -1731,6 +1757,11 @@ void matrix_e2e_handle_sync_key_counts(PurpleConnection *pc, JsonObject *count_o
 
 void matrix_e2e_cleanup_conversation(PurpleConversation *conv)
 {
+}
+
+GList *matrix_e2e_actions(GList *list)
+{
+    return list;
 }
 
 #endif

@@ -35,6 +35,7 @@
 #include "version.h"
 
 #include "matrix-connection.h"
+#include "matrix-e2e.h"
 #include "matrix-room.h"
 #include "matrix-api.h"
 
@@ -378,6 +379,14 @@ static void matrixprpl_destroy(PurplePlugin *plugin) {
     purple_debug_info("matrixprpl", "shutting down\n");
 }
 
+static GList *matrixprpl_actions(PurplePlugin *plugin, gpointer context)
+{
+  GList *list = NULL;
+
+  list = matrix_e2e_actions(list);
+
+  return list;
+}
 
 static PurplePluginInfo info =
 {
@@ -402,7 +411,7 @@ static PurplePluginInfo info =
     NULL,                                                    /* ui_info */
     &prpl_info,                                              /* extra_info */
     NULL,                                                    /* prefs_info */
-    NULL,                                                    /* actions */
+    matrixprpl_actions,                                      /* actions */
     NULL,                                                    /* padding... */
     NULL,
     NULL,
