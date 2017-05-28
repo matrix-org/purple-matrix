@@ -41,6 +41,16 @@ struct _PurpleConnection;
 void matrix_room_complete_state_update(struct _PurpleConversation *conv,
         gboolean announce_arrivals);
 
+void matrix_room_create(struct _PurpleConnection *pc,
+        gboolean public, gboolean federate,
+        const char *room_alias, const char *room_name,
+        const char *topic);
+
+/**
+ * Join an existing conversation for the given room
+ */
+struct _PurpleConversation *matrix_room_join_conversation(
+        struct _PurpleConnection *pc, const gchar *room_id);
 
 /**
  * Create a new conversation for the given room

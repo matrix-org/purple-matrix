@@ -32,6 +32,8 @@
 
 #include "libmatrix.h"
 #include "matrix-json.h"
+#include "matrix-room.h"
+#include "matrix-connection.h"
 
 struct _MatrixApiRequestData {
     PurpleUtilFetchUrlData *purple_data;
@@ -63,17 +65,19 @@ void matrix_api_error(MatrixConnectionData *conn, gpointer user_data,
 void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
         int http_response_code, JsonNode *json_root)
 {
-    JsonObject *json_obj;
+    JsonObject *json_obj = NULL;
     const gchar *errcode = NULL, *error = NULL;
     gchar *error_message;
 
     if(json_root != NULL) {
         json_obj = matrix_json_node_get_object(json_root);
-        errcode = matrix_json_object_get_string_member(json_obj, "errcode");
-        error = matrix_json_object_get_string_member(json_obj, "error");
+        if (json_obj) {
+            errcode = matrix_json_object_get_string_member(json_obj, "errcode");
+            error = matrix_json_object_get_string_member(json_obj, "error");
+        }
     }
 
-    if(errcode != NULL && error != NULL) {
+    if(errcode && error) {
         error_message = g_strdup_printf("%s: %s: %s",
                 _("Error from home server"), errcode, error);
     } else {
@@ -310,8 +314,10 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
     } else if(response_code >= 300) {
         purple_debug_info("matrixprpl", "API gave response %i\n",
                 response_code);
-        (data->bad_response_callback)(data->conn, data->user_data,
-                response_code, root);
+        if (data && data->conn && data->bad_response_callback) {
+            (data->bad_response_callback)(data->conn, data->user_data,
+                    response_code, root);
+        }
     } else if (data->callback) {
         (data->callback)(data->conn, data->user_data, root,
                          response_data->body, response_data->body_len,
@@ -450,7 +456,6 @@ static GString *_build_request(PurpleAccount *acct, const gchar *url,
 
     return request_str;
 }
-
 
 /**
  * Start an HTTP call to the API
@@ -674,6 +679,67 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
     return fetch_data;
 }
 
+MatrixApiRequestData *matrix_api_create_room(MatrixConnectionData *conn,
+        JsonObject *roomdescr,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    JsonNode *body_node;
+    JsonGenerator *generator;
+    MatrixApiRequestData *fetch_data = NULL;
+    gchar *json;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append_printf(url, "_matrix/client/r0/createRoom?access_token=%s",
+            purple_url_encode(conn->access_token));
+
+    body_node = json_node_new(JSON_NODE_OBJECT);
+    json_node_set_object(body_node, roomdescr);
+
+    generator = json_generator_new();
+    json_generator_set_root(generator, body_node);
+    json = json_generator_to_data(generator, NULL);
+    g_object_unref(G_OBJECT(generator));
+    json_node_free(body_node);
+
+    purple_debug_info("matrixprpl", "creating room\n");
+
+    printf("json = %s\n", json);
+    fetch_data = matrix_api_start(url->str, "POST", json, conn, callback,
+            error_callback, bad_response_callback,
+            user_data, -1);
+    g_free(json);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
+}
+
+void matrix_api_get_roomid_by_alias(MatrixConnectionData *conn,
+        const char *room_alias,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append_printf(url, "_matrix/client/r0/directory/room/%s",
+            purple_url_encode(room_alias));
+    g_string_append_printf(url, "?access_token=%s",
+            purple_url_encode(conn->access_token));
+
+    purple_debug_info("matrixprpl", "getting room_id from room_alias\n");
+
+    matrix_api_start(url->str, "GET", NULL, conn, callback,
+            error_callback, bad_response_callback,
+            user_data, -1);
+
+    g_string_free(url, TRUE);
+}
 
 MatrixApiRequestData *matrix_api_send(MatrixConnectionData *conn,
         const gchar *room_id, const gchar *event_type, const gchar *txn_id,
@@ -763,6 +829,32 @@ void matrix_api_invite_user(MatrixConnectionData *conn,
     json_object_unref(invitee);
 }
 
+MatrixApiRequestData *matrix_api_room_set_public(MatrixConnectionData *conn,
+        const gchar *room,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "_matrix/client/r0/directory/list/room/");
+    g_string_append(url, purple_url_encode(room));
+    g_string_append(url, "?access_token=");
+    g_string_append(url, purple_url_encode(conn->access_token));
+
+    purple_debug_info("matrixprpl", "setting room %s public\n", room);
+
+    fetch_data = matrix_api_start(url->str, "PUT", "{ \"visibility\" : \"public\" }", conn, callback,
+            error_callback, bad_response_callback,
+            user_data, -1);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
+}
+
 MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
         const gchar *room,
         MatrixApiCallback callback,
@@ -774,21 +866,20 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
     MatrixApiRequestData *fetch_data;
 
     url = g_string_new(conn->homeserver);
-    g_string_append(url, "_matrix/client/r0/rooms/");
+    g_string_append(url, "_matrix/client/r0/join/");
     g_string_append(url, purple_url_encode(room));
-    g_string_append(url, "/join?access_token=");
+    g_string_append(url, "?access_token=");
     g_string_append(url, purple_url_encode(conn->access_token));
 
     purple_debug_info("matrixprpl", "joining %s\n", room);
 
     fetch_data = matrix_api_start(url->str, "POST", "{}", conn, callback,
             error_callback, bad_response_callback,
-            user_data, 0);
+            user_data, -1);
     g_string_free(url, TRUE);
 
     return fetch_data;
 }
-
 
 MatrixApiRequestData *matrix_api_leave_room(MatrixConnectionData *conn,
         const gchar *room_id,

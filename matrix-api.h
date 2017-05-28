@@ -110,8 +110,15 @@ void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
         int http_response_code, struct _JsonNode *json_root);
 
 
-
-
+/**
+ * Get roomid by alias
+ */
+void matrix_api_get_roomid_by_alias(MatrixConnectionData *conn,
+        const char *room_alias,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
 
 /**
  * Cancel a call to an API. This will also call the error_callback
@@ -164,6 +171,13 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+
+MatrixApiRequestData *matrix_api_create_room(MatrixConnectionData *conn,
+        struct _JsonObject *roomdescr,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
 
 /**
  * Send an event to a room
@@ -236,6 +250,13 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+
+MatrixApiRequestData *matrix_api_room_set_public(MatrixConnectionData *conn,
+        const gchar *room,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
 
 /**
  * Leave a room

@@ -25,6 +25,7 @@
 #include "libmatrix.h"
 
 #include <glib.h>
+#include <string.h>
 
 #include "account.h"
 #include "accountopt.h"
@@ -37,6 +38,7 @@
 #include "matrix-connection.h"
 #include "matrix-room.h"
 #include "matrix-api.h"
+#include "matrix-json.h"
 
 /**
  * Called to get the icon name for the given buddy and account.
@@ -52,6 +54,54 @@ static const char *matrixprpl_list_icon(PurpleAccount *acct, PurpleBuddy *buddy)
     return "matrix";
 }
 
+/**
+ * Callback for when joining a room fails, create the room
+ */
+static void room_create_callback(MatrixConnectionData *conn,
+        gpointer user_data, int http_response_code,
+        struct _JsonNode *json_root)
+{
+    const gchar *errorstr, *errcodestr;
+    JsonObject *root_obj;
+    const gchar *room_alias;
+
+    if (json_root) {
+        root_obj = matrix_json_node_get_object(json_root);
+    }
+    errorstr = json_object_get_string_member(root_obj, "error");
+    errcodestr = json_object_get_string_member(root_obj, "errcode");
+    char roomid[strlen(errorstr) - 20];
+    if (errcodestr && !strcmp(errcodestr, "M_NOT_FOUND")) {
+        snprintf(roomid, strlen(errorstr) - 20, "%s", &errorstr[11]);
+        roomid[strlen(errorstr) - 20] = '\0';
+        room_alias = g_strdup(roomid);
+        matrix_room_create(conn->pc, TRUE, TRUE, room_alias, room_alias, "");
+    } else {
+        purple_notify_error(conn->pc, errcodestr, errcodestr, errorstr);
+    }
+}
+
+/**
+ * Callback for join by alias, if it succeeds, join the room
+ */
+static void room_join_callback(MatrixConnectionData *conn,
+                                  gpointer user_data,
+                                  struct _JsonNode *json_root,
+                                  const char *body,
+                                  size_t body_len, const char *content_type)
+{
+    JsonObject *root_obj;
+    const gchar *room_id;
+    GHashTable *components = user_data;
+
+    if (json_root) {
+        root_obj = matrix_json_node_get_object(json_root);
+        room_id = json_object_get_string_member(root_obj, "room_id");
+    }
+    if(room_id) {
+        matrix_connection_join_room(conn->pc, room_id, components);
+    }
+}
 
 /**
  * Called to get a list of the PurpleStatusType which are valid for this account
@@ -141,17 +191,24 @@ static char *matrixprpl_get_chat_name(GHashTable *components)
  * Handle a double-click on a chat in the buddy list, or acceptance of a chat
  * invite: it is expected that we join the chat.
  */
-static void matrixprpl_join_chat(PurpleConnection *gc, GHashTable *components)
+static void matrixprpl_join_chat(PurpleConnection *pc, GHashTable *components)
 {
-    const char *room = g_hash_table_lookup(components, PRPL_CHAT_INFO_ROOM_ID);
-    int chat_id = g_str_hash(room);
-    PurpleConversation *conv;
+    const char *room_alias = components ?
+            g_hash_table_lookup(components, PRPL_CHAT_INFO_ROOM_ID) : "";
+    int chat_id = room_alias ? g_str_hash(room_alias) : 0;
+    PurpleConversation *conv = NULL;
     PurpleConvChat *chat;
+    MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
 
-    conv = purple_find_chat(gc, chat_id);
+    if (!chat_id) {
+        return;
+    }
 
-    if(!conv) {
-        matrix_connection_join_room(gc, room, components);
+    conv = purple_find_chat(pc, chat_id);
+
+    if (!conv) {
+        /* get the room by alias, if possible - join it, otherwise for now, do nothing */
+        matrix_api_get_roomid_by_alias(conn, room_alias, room_join_callback, NULL, room_create_callback, components);
         return;
     }
 
@@ -164,8 +221,8 @@ static void matrixprpl_join_chat(PurpleConnection *gc, GHashTable *components)
     chat = PURPLE_CONV_CHAT(conv);
     chat->left = FALSE;
 
-    if (!g_slist_find(gc->buddy_chats, conv))
-            gc->buddy_chats = g_slist_append(gc->buddy_chats, conv);
+    if (!g_slist_find(pc->buddy_chats, conv))
+            pc->buddy_chats = g_slist_append(pc->buddy_chats, conv);
     purple_conversation_update(conv, PURPLE_CONV_UPDATE_CHATLEFT);
 }
 
