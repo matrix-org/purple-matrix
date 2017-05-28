@@ -83,6 +83,8 @@ void matrixprpl_login(PurpleAccount *acct)
     PurpleConnection *pc = purple_account_get_connection(acct);
     matrix_connection_new(pc);
     matrix_connection_start_login(pc);
+    
+    pc->flags |= PURPLE_CONNECTION_HTML;
 }
 
 
