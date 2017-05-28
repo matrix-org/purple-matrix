@@ -169,6 +169,19 @@ static void _on_member_change(PurpleConversation *conv,
             new_state->content);
 }
 
+/**
+ * Called when there is a change to the topic.
+ */
+static void _on_topic_change(PurpleConversation *conv,
+        MatrixRoomEvent *new_state)
+{
+    PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
+    
+    purple_conv_chat_set_topic(chat, new_state->sender,
+        matrix_json_object_get_string_member(new_state->content,
+            "topic"));
+}
+
 
 /**
  * Called when there is a change list of typing userss.
@@ -269,6 +282,9 @@ static void _on_state_update(const gchar *event_type,
     }
     else if(strcmp(event_type, "m.typing") == 0) {
         _on_typing(conv, old_state, new_state);
+    }
+    else if(strcmp(event_type, "m.room.topic") == 0) {
+        _on_topic_change(conv, new_state);
     }
 }
 
@@ -930,7 +946,11 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     }
     flags = PURPLE_MESSAGE_RECV;
 
-    escaped_body = purple_markup_escape_text(tmp_body ? tmp_body : msg_body, -1);
+    if (purple_strequal(matrix_json_object_get_string_member(json_content_obj, "format"), "org.matrix.custom.html")) {
+        escaped_body = g_strdup(matrix_json_object_get_string_member(json_content_obj, "formatted_body"));
+    } else {
+        escaped_body = purple_markup_escape_text(tmp_body ? tmp_body : msg_body, -1);
+    }
     g_free(tmp_body);
     purple_debug_info("matrixprpl", "got message from %s in %s\n", sender_id,
             room_id);
@@ -1269,7 +1289,7 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
     PurpleConvChat *chat = PURPLE_CONV_CHAT(conv);
     const char *type_string = "m.text";
     const char *image_start, *image_end;
-    gchar *message_to_send;
+    gchar *message_to_send, *message_dup;
     GData *image_attribs;
 
     /* Matrix doesn't have messages that have both images and text in, so
@@ -1305,20 +1325,26 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
      * escape the message body. Matrix clients don't unescape the bodies
      * either, so they end up seeing &quot; instead of "
      */
-    message_to_send = purple_unescape_html(message);
+    message_dup = g_strdup(message);
+    message_to_send = purple_markup_strip_html(message_dup);
 
     if (purple_message_meify(message_to_send, -1)) {
         type_string = "m.emote";
+        purple_message_meify(message_dup, -1);
     }
 
     content = json_object_new();
     json_object_set_string_member(content, "msgtype", type_string);
     json_object_set_string_member(content, "body", message_to_send);
+    json_object_set_string_member(content, "formatted_body", message_dup);
+    json_object_set_string_member(content, "format", "org.matrix.custom.html");
 
     _enqueue_event(conv, "m.room.message", content, NULL, NULL);
     json_object_unref(content);
 
     purple_conv_chat_write(chat, _get_my_display_name(conv),
-            message, PURPLE_MESSAGE_SEND, g_get_real_time()/1000/1000);
+            message_dup, PURPLE_MESSAGE_SEND, g_get_real_time()/1000/1000);
+
     g_free(message_to_send);
+    g_free(message_dup);
 }

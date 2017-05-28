@@ -105,6 +105,8 @@ void matrixprpl_login(PurpleAccount *acct)
     
     purple_signal_connect(purple_conversations_get_handle(), "chat-conversation-typing", 
         acct, PURPLE_CALLBACK(matrixprpl_conv_send_typing), pc);
+    
+    pc->flags |= PURPLE_CONNECTION_HTML;
 }
 
 
