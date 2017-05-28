@@ -159,6 +159,7 @@ static void matrix_sync_room(const gchar *room_id,
         _parse_room_event_array(conv, timeline_array, FALSE);
 
     /* parse the ephemeral events */
+    /* (uses the state table to track the state of who is typing and who isn't) */
     ephemeral_object = matrix_json_object_get_object_member(room_data, "ephemeral");
     ephemeral_array = matrix_json_object_get_array_member(ephemeral_object, "events");
     if(ephemeral_array != NULL)

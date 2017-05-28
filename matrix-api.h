@@ -241,7 +241,8 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
  *
  * @param conn             The connection with which to make the request
  * @param room_id          The room id to send the typing notification to
- * @param content          The content of the typing event
+ * @param typing           Whether to mark the user as typing
+ * @param typing_timeout   How long the server should mark the user as typing
  * @param callback         Function to be called when the request completes
  * @param error_callback   Function to be called if there is an error making
  *                             the request. If NULL, matrix_api_error will be
@@ -252,8 +253,8 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
  * @param user_data        Opaque data to be passed to the callbacks
  */
 MatrixApiRequestData *matrix_api_typing(MatrixConnectionData *conn,
-        const gchar *room_id, struct _JsonObject *content,
-        MatrixApiCallback callback,
+        const gchar *room_id, gboolean typing,
+        gint typing_timeout, MatrixApiCallback callback,
         MatrixApiErrorCallback error_callback,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);

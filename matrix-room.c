@@ -1261,23 +1261,15 @@ void matrix_room_send_image(PurpleConversation *conv, int imgstore_id,
  */
 void matrix_room_send_typing(PurpleConversation *conv, gboolean typing)
 {
-    JsonObject *content;
     MatrixConnectionData *acct;
     PurpleConnection *pc = conv->account->gc;
 
     acct = purple_connection_get_protocol_data(pc);
     
-    content = json_object_new();
-    json_object_set_boolean_member(content, "typing", typing);
-    if (typing == TRUE) {
-        json_object_set_int_member(content, "timeout", 25000);
-    }
-    
     // Don't check callbacks as it's inconsequential whether typing notifications go through
-    matrix_api_typing(acct, conv->name, content, 
+    matrix_api_typing(acct, conv->name, typing, 25000,
             NULL, NULL, NULL, NULL);
     
-    json_object_unref(content);
 }
 
 /**

@@ -790,8 +790,8 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
 }
 
 MatrixApiRequestData *matrix_api_typing(MatrixConnectionData *conn,
-        const gchar *room_id, JsonObject *content,
-        MatrixApiCallback callback,
+        const gchar *room_id, gboolean typing,
+        gint typing_timeout, MatrixApiCallback callback,
         MatrixApiErrorCallback error_callback,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data)
@@ -801,6 +801,7 @@ MatrixApiRequestData *matrix_api_typing(MatrixConnectionData *conn,
     JsonNode *body_node;
     JsonGenerator *generator;
     gchar *json;
+    JsonObject *content;
 
     /* purple_url_encode uses a single static buffer, so we have to build up
      * the url gradually
@@ -814,6 +815,11 @@ MatrixApiRequestData *matrix_api_typing(MatrixConnectionData *conn,
     g_string_append(url, purple_url_encode(conn->access_token));
 
     body_node = json_node_new(JSON_NODE_OBJECT);
+    content = json_object_new();
+    json_object_set_boolean_member(content, "typing", typing);
+    if (typing == TRUE) {
+        json_object_set_int_member(content, "timeout", typing_timeout);
+    }
     json_node_set_object(body_node, content);
 
     generator = json_generator_new();
@@ -829,6 +835,7 @@ MatrixApiRequestData *matrix_api_typing(MatrixConnectionData *conn,
             user_data, 0);
     g_free(json);
     g_string_free(url, TRUE);
+    json_object_unref(content);
 
     return fetch_data;
 }
