@@ -309,7 +309,7 @@ static PurplePluginProtocolInfo prpl_info =
     matrixprpl_get_cb_real_name,           /* get_cb_real_name */
     NULL,                                  /* set_chat_topic */
     NULL,                                  /* find_blist_chat */
-    NULL,                                  /* roomlist_get_list */
+    matrixprpl_roomlist_get_list,          /* roomlist_get_list */
     NULL,                                  /* roomlist_cancel */
     NULL,                                  /* roomlist_expand_category */
     NULL,                                  /* can_receive_file */
