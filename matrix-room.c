@@ -885,6 +885,57 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     g_free(escaped_body);
 }
 
+void matrix_room_create(PurpleConnection *pc,
+        gboolean public, gboolean federate,
+        const char *room_alias, const char *room_name,
+        const char *topic)
+{
+    JsonObject *room_descr, *mfederate;
+    MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+
+    room_descr = json_object_new();
+    mfederate = json_object_new();
+    json_object_set_boolean_member(mfederate, "m.federate",
+            federate ? TRUE : FALSE);
+    json_object_set_string_member(room_descr, "preset",
+            public ? "public_chat" : "private_chat");
+    json_object_set_string_member(room_descr, "room_alias_name", room_alias);
+    json_object_set_string_member(room_descr, "name", room_name);
+    json_object_set_string_member(room_descr, "topic", topic);
+    json_object_set_object_member(room_descr, "creation_content", mfederate);
+
+    matrix_api_create_room(conn, room_descr, room_set_public_callback, NULL, NULL, NULL);
+}
+
+PurpleConversation *matrix_room_join_conversation(
+        PurpleConnection *pc, const gchar *room_id)
+{
+    JsonObject *new_state = NULL;
+    MatrixRoomStateEventTable *state_table;
+    MatrixRoomMemberTable *member_table;
+    PurpleConversation *conv;
+    purple_debug_info("matrixprpl", "Join room %s\n", room_id);
+
+    /* tell purple we have joined this chat */
+    conv = serv_got_joined_chat(pc, g_str_hash(room_id), room_id);
+
+    /* create new tables */
+    state_table = matrix_statetable_new();
+    member_table = matrix_roommembers_new_table();
+
+    /* insert self into member table and update state */
+    matrix_roommembers_update_member(member_table, pc->account->username, new_state);
+    matrix_statetable_update(state_table, new_state, NULL, NULL);
+
+    /* tell purple about it */
+    purple_conversation_set_data(conv, PURPLE_CONV_DATA_EVENT_QUEUE, NULL);
+    purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND, NULL);
+    purple_conversation_set_data(conv, PURPLE_CONV_DATA_STATE, state_table);
+    purple_conversation_set_data(conv, PURPLE_CONV_MEMBER_TABLE, member_table);
+
+    matrix_room_complete_state_update(conv, TRUE);
+    return conv;
+}
 
 PurpleConversation *matrix_room_create_conversation(
         PurpleConnection *pc, const gchar *room_id)

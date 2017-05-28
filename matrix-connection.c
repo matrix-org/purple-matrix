@@ -31,6 +31,7 @@
 #include "matrix-api.h"
 #include "matrix-json.h"
 #include "matrix-sync.h"
+#include "matrix-room.h"
 
 static void _start_next_sync(MatrixConnectionData *ma,
         const gchar *next_batch, gboolean full_state);
@@ -241,20 +242,36 @@ void matrix_connection_start_login(PurpleConnection *pc)
 }
 
 
-static void _join_completed(MatrixConnectionData *conn,
+static void _tell_purple_joined_callback(MatrixConnectionData *conn,
         gpointer user_data,
         JsonNode *json_root,
         const char *raw_body, size_t raw_body_len, const char *content_type)
 {
-    GHashTable *components = user_data;
     JsonObject *root_obj;
     const gchar *room_id;
 
     root_obj = matrix_json_node_get_object(json_root);
     room_id = matrix_json_object_get_string_member(root_obj, "room_id");
-    purple_debug_info("matrixprpl", "join %s completed", room_id);
+    if (room_id && *room_id) {
+        matrix_room_join_conversation(conn->pc, room_id);
+        purple_debug_info("matrixprpl", "join %s completed", room_id);
+    }
+}
 
-    g_hash_table_destroy(components);
+static void _join_completed(MatrixConnectionData *conn,
+        gpointer user_data,
+        JsonNode *json_root,
+        const char *raw_body, size_t raw_body_len, const char *content_type)
+{
+    JsonObject *root_obj;
+    const gchar *room_id;
+
+    root_obj = matrix_json_node_get_object(json_root);
+    room_id = matrix_json_object_get_string_member(root_obj, "room_id");
+    if (room_id && *room_id) {
+        // Now that we have the actual room id, join it, then create conv!
+        matrix_api_join_room(conn, room_id, _tell_purple_joined_callback, NULL, NULL, NULL);
+    }
 }
 
 
@@ -289,25 +306,12 @@ static void _join_failed(MatrixConnectionData *conn,
 
 
 void matrix_connection_join_room(struct _PurpleConnection *pc,
-        const gchar *room, GHashTable *components)
+        const gchar *room)
 {
-    GHashTable *copy;
-    GHashTableIter iter;
-    gpointer key, value;
-
     MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
 
-    /* we have to copy the components table, so that we can pass it back
-     * later on :/
-     */
-    copy = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
-    g_hash_table_iter_init (&iter, components);
-    while (g_hash_table_iter_next (&iter, &key, &value)) {
-        g_hash_table_insert(copy, g_strdup(key), g_strdup(value));
-    }
-
     matrix_api_join_room(conn, room, _join_completed, _join_error, _join_failed,
-            copy);
+            NULL);
 }
 
 
