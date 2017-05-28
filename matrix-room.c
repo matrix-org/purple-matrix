@@ -872,12 +872,12 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     }
     flags = PURPLE_MESSAGE_RECV;
 
-	if (purple_strequal(matrix_json_object_get_string_member(json_content_obj, "format"), "org.matrix.custom.html")) {
-		escaped_body = g_strdup(matrix_json_object_get_string_member(json_content_obj, "formatted_body"));
-	} else {
-		escaped_body = purple_markup_escape_text(tmp_body ? tmp_body : msg_body, -1);
-	}
-	g_free(tmp_body);
+    if (purple_strequal(matrix_json_object_get_string_member(json_content_obj, "format"), "org.matrix.custom.html")) {
+        escaped_body = g_strdup(matrix_json_object_get_string_member(json_content_obj, "formatted_body"));
+    } else {
+        escaped_body = purple_markup_escape_text(tmp_body ? tmp_body : msg_body, -1);
+    }
+    g_free(tmp_body);
     purple_debug_info("matrixprpl", "got message from %s in %s\n", sender_id,
             room_id);
     serv_got_chat_in(conv->account->gc, g_str_hash(room_id),
@@ -1227,12 +1227,12 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
      * escape the message body. Matrix clients don't unescape the bodies
      * either, so they end up seeing &quot; instead of "
      */
-	message_dup = g_strdup(message);
+    message_dup = g_strdup(message);
     message_to_send = purple_markup_strip_html(message_dup);
 
     if (purple_message_meify(message_to_send, -1)) {
         type_string = "m.emote";
-		purple_message_meify(message_dup, -1);
+        purple_message_meify(message_dup, -1);
     }
 
     content = json_object_new();
@@ -1246,5 +1246,7 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
 
     purple_conv_chat_write(chat, _get_my_display_name(conv),
             message_dup, PURPLE_MESSAGE_SEND, g_get_real_time()/1000/1000);
+
     g_free(message_to_send);
+    g_free(message_dup);
 }
