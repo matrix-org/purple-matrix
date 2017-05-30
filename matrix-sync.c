@@ -126,8 +126,8 @@ static PurpleChat *_ensure_blist_entry(PurpleAccount *acct,
 static void matrix_sync_room(const gchar *room_id,
         JsonObject *room_data, PurpleConnection *pc)
 {
-    JsonObject *state_object, *timeline_object;
-    JsonArray *state_array, *timeline_array;
+    JsonObject *state_object, *timeline_object, *ephemeral_object;
+    JsonArray *state_array, *timeline_array, *ephemeral_array;
     PurpleConversation *conv;
     gboolean initial_sync = FALSE;
 
@@ -157,6 +157,13 @@ static void matrix_sync_room(const gchar *room_id,
                 timeline_object, "events");
     if(timeline_array != NULL)
         _parse_room_event_array(conv, timeline_array, FALSE);
+
+    /* parse the ephemeral events */
+    /* (uses the state table to track the state of who is typing and who isn't) */
+    ephemeral_object = matrix_json_object_get_object_member(room_data, "ephemeral");
+    ephemeral_array = matrix_json_object_get_array_member(ephemeral_object, "events");
+    if(ephemeral_array != NULL)
+        _parse_room_event_array(conv, ephemeral_array, TRUE);
 }
 
 

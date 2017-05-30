@@ -75,6 +75,11 @@ void matrix_room_handle_timeline_event(struct _PurpleConversation *conv,
         JsonObject *json_event_obj);
 
 /**
+ * Sends a typing notification in a room with a 25s timeout
+ */
+void matrix_room_send_typing(struct _PurpleConversation *conv, gboolean typing);
+        
+/**
  * Send a message in a room
  */
 void matrix_room_send_message(struct _PurpleConversation *conv,

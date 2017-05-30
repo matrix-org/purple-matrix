@@ -83,6 +83,12 @@ void matrix_statetable_update(MatrixRoomStateEventTable *state_table,
             json_event_obj, "sender");
     json_content_obj = matrix_json_object_get_object_member(
             json_event_obj, "content");
+    
+    if (g_strcmp0(event_type, "m.typing") == 0) {
+        // Create a fake key so we can keep track of typing state
+        state_key = "typing";
+        sender = "";
+    }
 
     if(event_type == NULL || state_key == NULL || sender == NULL ||
             json_content_obj == NULL) {

@@ -76,6 +76,25 @@ static GList *matrixprpl_status_types(PurpleAccount *acct)
 }
 
 /**
+ * handle sending typing notifications in a chat
+ */
+static guint matrixprpl_conv_send_typing(PurpleConversation *conv, 
+        PurpleTypingState state, gpointer ignored)
+{
+    PurpleConnection *pc = purple_conversation_get_gc(conv);
+
+    if (!PURPLE_CONNECTION_IS_CONNECTED(pc))
+        return 0;
+
+    if (g_strcmp0(purple_plugin_get_id(purple_connection_get_prpl(pc)), PRPL_ID))
+        return 0;
+
+    matrix_room_send_typing(conv, (state == PURPLE_TYPING));
+
+    return 20;
+}
+
+/**
  * Start the connection to a matrix account
  */
 void matrixprpl_login(PurpleAccount *acct)
@@ -83,6 +102,9 @@ void matrixprpl_login(PurpleAccount *acct)
     PurpleConnection *pc = purple_account_get_connection(acct);
     matrix_connection_new(pc);
     matrix_connection_start_login(pc);
+    
+    purple_signal_connect(purple_conversations_get_handle(), "chat-conversation-typing", 
+        acct, PURPLE_CALLBACK(matrixprpl_conv_send_typing), pc);
     
     pc->flags |= PURPLE_CONNECTION_HTML;
 }
