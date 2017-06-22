@@ -1,9 +1,10 @@
 # common parts of Makefile and Makefile.mingw
 
-COMPILE.c = $(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c
+COMPILE.c = $(CC) $(CFLAGS) $(LDFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c
 
-CFLAGS+=-Wall -g -O0 -Werror
+CFLAGS ?= -Wall -g -O0 -Werror
 CFLAGS += -DPURPLE_PLUGINS 
+LDFLAGS ?= -Wl,-z,relro 
 
 # generate .d files when compiling
 CPPFLAGS += -MMD
@@ -22,10 +23,10 @@ clean:
 
 install:
 	mkdir -p $(DESTDIR)$(PLUGIN_DIR_PURPLE)
-	install -m 664 $(TARGET) $(DESTDIR)$(PLUGIN_DIR_PURPLE)
+	install -m 0755 $(TARGET) $(DESTDIR)$(PLUGIN_DIR_PURPLE)
 	for i in 16 22 48; do \
 	    mkdir -p $(DESTDIR)$(DATA_ROOT_DIR_PURPLE)/pixmaps/pidgin/protocols/$$i; \
-	    install -m 664 matrix-$${i}px.png $(DESTDIR)$(DATA_ROOT_DIR_PURPLE)/pixmaps/pidgin/protocols/$$i/matrix.png; \
+	    install -m 0644 -p matrix-$${i}px.png $(DESTDIR)$(DATA_ROOT_DIR_PURPLE)/pixmaps/pidgin/protocols/$$i/matrix.png; \
 	done
 
 $(TARGET): $(OBJECTS)
