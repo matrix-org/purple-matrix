@@ -298,6 +298,44 @@ static int get_id_keys(PurpleConnection *pc, OlmAccount *account, gchar ***algor
     return n_keys;
 }
 
+/* Called from sync with an object of the form:
+ *           "device_one_time_keys_count" : {
+ *               "signed_curve25519" : 100
+ *           },
+ */
+void matrix_e2e_handle_sync_key_counts(PurpleConnection *pc, JsonObject *count_object,
+                                       gboolean force_send)
+{
+    gboolean need_to_send = force_send;
+    gboolean valid_counts = FALSE;
+    MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+    size_t max_keys = olm_account_max_number_of_one_time_keys(conn->e2e->oa);
+    size_t to_create = max_keys;
+
+    if (!force_send) {
+        JsonObjectIter iter;
+        const gchar *key_algo;
+        JsonNode *key_count_node;
+        json_object_iter_init(&iter, count_object);
+        while (json_object_iter_next(&iter, &key_algo, &key_count_node)) {
+            valid_counts = TRUE;
+            gint64 count = matrix_json_node_get_int(key_count_node);
+            if (count < max_keys / 2) {
+                to_create = (max_keys / 2) - count;
+                need_to_send = TRUE;
+            }
+            purple_debug_info("matrixprpl", "%s: %s: %ld\n",
+                           __func__, key_algo, count);
+        }
+    }
+
+    need_to_send |= !valid_counts;
+    if (need_to_send) {
+        purple_debug_info("matrixprpl", "%s: need to send\n",__func__);
+        // TODO send_one_time_keys(conn, to_create);
+    }
+}
+
 static void key_upload_callback(MatrixConnectionData *conn,
                                 gpointer user_data,
                                 struct _JsonNode *json_root,
@@ -454,6 +492,11 @@ int matrix_e2e_get_device_keys(MatrixConnectionData *conn, const gchar *device_i
 }
 
 void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
+{
+}
+
+void matrix_e2e_handle_sync_key_counts(PurpleConnection *pc, JsonObject *count_object,
+                                       gboolean force_send)
 {
 }
 

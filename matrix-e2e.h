@@ -19,11 +19,13 @@
 #ifndef MATRIX_E2E_H
 #define MATRIX_E2E_H
 
+#include <json-glib/json-glib.h>
 #include "matrix-connection.h"
 
 typedef struct _MatrixE2EData MatrixE2EData;
 
 int matrix_e2e_get_device_keys(MatrixConnectionData *conn, const gchar *device_id);
 void matrix_e2e_cleanup_connection(MatrixConnectionData *conn);
+void matrix_e2e_handle_sync_key_counts(struct _PurpleConnection *pc, struct _JsonObject *count_object, gboolean force_send);
 
 #endif
