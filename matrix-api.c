@@ -652,7 +652,7 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
 
     url = g_string_new(conn->homeserver);
     g_string_append_printf(url,
-            "_matrix/client/r0/sync?access_token=%s&timeout=%i",
+            "_matrix/client/unstable/sync?access_token=%s&timeout=%i",
             purple_url_encode(conn->access_token), timeout);
 
     if(since != NULL)
