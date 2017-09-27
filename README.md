@@ -33,7 +33,7 @@ from source.
 You will need development headers/libraries for the following:
 * libpurple 2.x [libpurple-dev]
 * libjson-glib  [libjson-glib-dev]
-* libglib [libglib-dev]
+* libglib [libglib-dev (or libglib2.0-dev on ubuntu 16.04 xenial)]
 * libhttp_parser [libhttp-parser-dev].
 
 You should then be able to:
