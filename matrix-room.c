@@ -72,6 +72,9 @@ static MatrixConnectionData *_get_connection_data_from_conversation(
 /* Arbitrary limit on the size of an image to receive; should make configurable */
 static const size_t purple_max_image_size=250*1024;
 
+/* Arbitrary limit on the size of a video to receive; should make configurable */
+static const size_t purple_max_video_size=25*1024*1024;
+
 /**
  * Get the member table for a room
  */
@@ -731,7 +734,7 @@ static gboolean _handle_incoming_image(PurpleConversation *conv,
                 return FALSE;
             }
         }
-        purple_debug_info("matrixprpl", "image info good: %s of %" PRId64,
+        purple_debug_info("matrixprpl", "image info good: %s of %" PRId64 "\n",
                           mime_type, size);
     }
 
@@ -761,6 +764,182 @@ static gboolean _handle_incoming_image(PurpleConversation *conv,
                     _image_download_complete,
                     _image_download_error,
                     _image_download_bad_response, rid);
+    }
+
+    purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
+            fetch_data);
+
+    return fetch_data != NULL;
+}
+
+
+/**
+ * Check if the declared content-type is a video type we recognise.
+ */
+static gboolean is_known_video_type(const char *content_type)
+{
+    /* TODO */
+    purple_debug_info("matrixprpl", "%s: %s\n", __func__, content_type);
+    return TRUE;
+}
+
+/* Passed through matrix_api_download_file all the way
+ * downto _video_download_complete
+ * Shameless copy from the image stuff above
+ */
+struct ReceiveVideoData {
+    PurpleConversation *conv;
+    gint64 timestamp;
+    const gchar *room_id;
+    const gchar *sender_display_name;
+    gchar *original_body;
+};
+
+static void _video_download_complete(MatrixConnectionData *ma,
+          gpointer user_data, JsonNode *json_root,
+          const char *raw_body, size_t raw_body_len, const char *content_type)
+{
+    struct ReceiveVideoData *rid = user_data;
+    if (is_known_video_type(content_type)) {
+        /* Excellent - something to work with */
+        int img_id = purple_imgstore_add_with_id(g_memdup(raw_body, raw_body_len),
+                                                 raw_body_len, NULL);
+        serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id), rid->sender_display_name,
+                PURPLE_MESSAGE_RECV | PURPLE_MESSAGE_IMAGES,
+                g_strdup_printf("<IMG ID=\"%d\">", img_id), rid->timestamp / 1000);
+    } else {
+        serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
+                rid->sender_display_name, PURPLE_MESSAGE_RECV,
+                g_strdup_printf("%s (unknown type %s)",
+                        rid->original_body, content_type), rid->timestamp / 1000);
+    }
+    purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
+            NULL);
+    g_free(rid->original_body);
+    g_free(rid);
+}
+
+static void _video_download_bad_response(MatrixConnectionData *ma, gpointer user_data,
+                int http_response_code, JsonNode *json_root)
+{
+    struct ReceiveVideoData *rid = user_data;
+    gchar *escaped_body = purple_markup_escape_text(rid->original_body, -1);
+    serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
+            rid->sender_display_name, PURPLE_MESSAGE_RECV,
+            g_strdup_printf("%s (failed to download %d)",
+                    escaped_body, http_response_code),
+                    rid->timestamp / 1000);
+    purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
+            NULL);
+    g_free(escaped_body);
+    g_free(rid->original_body);
+    g_free(rid);
+}
+
+static void _video_download_error(MatrixConnectionData *ma, gpointer user_data,
+                const gchar *error_message)
+{
+    struct ReceiveVideoData *rid = user_data;
+    gchar *escaped_body = purple_markup_escape_text(rid->original_body, -1);
+    serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
+            rid->sender_display_name, PURPLE_MESSAGE_RECV,
+            g_strdup_printf("%s (failed to download %s)",
+                    escaped_body, error_message), rid->timestamp / 1000);
+    purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
+            NULL);
+    g_free(escaped_body);
+    g_free(rid->original_body);
+    g_free(rid);
+}
+
+/*
+ * Called from matrix_room_handle_timeline_event when it finds an m.video;
+ * msg_body has the fallback text,
+ * json_content_object has the json for the content sub object
+ *
+ * Shameless copy of _handle_incoming_image
+ */
+static gboolean _handle_incoming_video(PurpleConversation *conv,
+        const gint64 timestamp, const gchar *room_id,
+        const gchar *sender_display_name, const gchar *msg_body,
+        JsonObject *json_content_object) {
+    MatrixConnectionData *conn = _get_connection_data_from_conversation(conv);
+    MatrixApiRequestData *fetch_data = NULL;
+    struct ReceiveVideoData *rid;
+    gboolean use_thumb = FALSE;
+
+    const gchar *url;
+    JsonObject *json_info_object;
+
+    url = matrix_json_object_get_string_member(json_content_object, "url");
+    if (!url) {
+        /* That seems odd, oh well, no point in getting upset */
+        purple_debug_info("matrixprpl", "failed to get url for m.video");
+        return FALSE;
+    }
+
+    /* the 'info' member is optional but if we've got it we can check it to early
+     * reject the video if it's something that's huge or we don't know the title.
+     */
+    json_info_object = matrix_json_object_get_object_member(json_content_object,
+            "info");
+    purple_debug_info("matrixprpl", "%s: %s json_info_object=%p\n", __func__,
+            url, json_info_object);
+    if (json_info_object) {
+        guint64 size;
+        const gchar *mime_type;
+
+        /* OK, we've got some (optional) info on the video */
+        size = matrix_json_object_get_int_member(json_info_object, "size");
+        if (size > purple_max_video_size) {
+            use_thumb = TRUE;
+        }
+        mime_type = matrix_json_object_get_string_member(json_info_object,
+                        "mimetype");
+        if (mime_type) {
+            if (!is_known_video_type(mime_type)) {
+                purple_debug_info("matrixprpl", "%s: unknown mimetype %s",
+                        __func__, mime_type);
+                return FALSE;
+            }
+        }
+        /* FIXME What if mime_type evaluates to false? */
+        purple_debug_info("matrixprpl", "video info good: %s of %" PRId64 "\n",
+                          mime_type, size);
+    }
+
+    rid = g_new0(struct ReceiveVideoData, 1);
+    rid->conv = conv;
+    rid->timestamp = timestamp;
+    rid->sender_display_name = sender_display_name;
+    rid->room_id = room_id;
+    rid->original_body = g_strdup(msg_body);
+
+    if (!use_thumb) {
+            purple_debug_info("matrixprpl", "%s: NOT using THUMB\n",
+                    __func__);
+            fetch_data = matrix_api_download_file(conn, url,
+                    purple_max_video_size,
+                    _video_download_complete,
+                    _video_download_error,
+                    _video_download_bad_response,
+                    rid);
+    } else {
+            /* TODO: Configure the size of thumbnails, and provide
+             * a way for the user to get the full video if they want.
+             * 640x480 is a good a width as any and reasonably likely to
+             * fit in the byte size limit unless someone has a big long
+             * tall png.
+             */
+            purple_debug_info("matrixprpl", "%s: USING THUMB\n",
+                    __func__);
+            fetch_data = matrix_api_download_thumb(conn, url,
+                    purple_max_video_size,
+                    640, 480, TRUE, /* Scaled */
+                    _video_download_complete,
+                    _video_download_error,
+                    _video_download_bad_response,
+                    rid);
     }
 
     purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
@@ -943,6 +1122,14 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
             return;
         }
         /* Fall through - we couldn't get the image, treat as text */
+    } else if (!strcmp(msg_type, "m.video")) {
+        if (_handle_incoming_video(conv, timestamp, room_id, sender_display_name,
+                    msg_body, json_content_obj)) {
+            purple_debug_info("matrixprpl", "video handled, SUCCESS\n");
+            return;
+        }
+        /* Fall through - we couldn't get the video, treat as text */
+        purple_debug_info("matrixprpl", "video NOT handled, FAILURE\n");
     }
     flags = PURPLE_MESSAGE_RECV;
 
