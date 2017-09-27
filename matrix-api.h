@@ -368,4 +368,23 @@ MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
         gpointer user_data);
 #endif
 
+/**
+ * Retrieves a list of all public rooms
+ *
+ * @param conn             The connection with which to make the request
+ * @param callback         Function to be called when the request completes
+ * @param error_callback   Function to be called if there is an error making
+ *                             the request. If NULL, matrix_api_error will be
+ *                             used.
+ * @param bad_response_callback Function to be called if the API gives a non-200
+ *                            response. If NULL, matrix_api_bad_response will be
+ *                            used.
+ * @param user_data        Opaque data to be passed to the callbacks
+ */
+MatrixApiRequestData *matrix_api_get_public_rooms(MatrixConnectionData *conn,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
 #endif
