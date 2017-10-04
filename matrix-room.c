@@ -785,7 +785,6 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
         JsonObject *json_content_object, const gchar *msg_type) {
     MatrixConnectionData *conn = _get_connection_data_from_conversation(conv);
     MatrixApiRequestData *fetch_data = NULL;
-    struct ReceiveImageData *rid;
 
     const gchar *url;
     GString *download_url;
@@ -804,13 +803,6 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
         purple_debug_error("matrixprpl", "failed to get download_url for media\n");
         return FALSE;
     }
-
-    rid = g_new0(struct ReceiveImageData, 1);
-    rid->conv = conv;
-    rid->timestamp = timestamp;
-    rid->sender_display_name = sender_display_name;
-    rid->room_id = room_id;
-    rid->original_body = g_strdup(msg_body);
 
     /* the 'info' member is optional but if we've got it we can check it to
      * look for the thumbnail_url.
@@ -831,39 +823,48 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
             g_strdup_printf("%s (type %s size %" PRId64 ") %s",
                     msg_body, mime_type, size, download_url->str), timestamp / 1000);
 
-    const gchar *thumb_url;
     /* If the optional 'info' member is available and if it contains a
      * 'thumbnail_url', we'll ask for that. If the thumbnail_url is not
      * available and the message is a video, we'll ask the server for
      * a thumbnail of 'url'.
      */
-    if (json_info_object &&
-            (thumb_url = matrix_json_object_get_string_member(json_info_object, "thumbnail_url"))) {
-        fetch_data = matrix_api_download_file(conn, thumb_url,
-                purple_max_image_size,
-                _image_download_complete,
-                _image_download_error,
-                _image_download_bad_response,
-                rid);
-    } else if (!strcmp("m.video", msg_type)){
-        /* TODO: Configure the size of thumbnails.
-         * 640x480 is a good a width as any and reasonably likely to
-         * fit in the byte size limit unless someone has a big long
-         * tall png.
-         */
-        fetch_data = matrix_api_download_thumb(conn, url,
-                purple_max_image_size,
-                640, 480, TRUE, /* Scaled */
-                _image_download_complete,
-                _image_download_error,
-                _image_download_bad_response,
-                rid);
-    } else {
-        return TRUE;
+    const gchar *thumb_url = matrix_json_object_get_string_member(json_info_object, "thumbnail_url");
+    int is_video = !strcmp("m.video", msg_type);
+    if ((json_info_object && thumb_url) || is_video) {
+        struct ReceiveImageData *rid;
+        rid = g_new0(struct ReceiveImageData, 1);
+        rid->conv = conv;
+        rid->timestamp = timestamp;
+        rid->sender_display_name = sender_display_name;
+        rid->room_id = room_id;
+        rid->original_body = g_strdup(msg_body);
+
+        if (json_info_object && thumb_url) {
+            fetch_data = matrix_api_download_file(conn, thumb_url,
+                    purple_max_image_size,
+                    _image_download_complete,
+                    _image_download_error,
+                    _image_download_bad_response,
+                    rid);
+        } else {
+            /* TODO: Configure the size of thumbnails.
+             * 640x480 is a good a width as any and reasonably likely to
+             * fit in the byte size limit unless someone has a big long
+             * tall png.
+             */
+            fetch_data = matrix_api_download_thumb(conn, url,
+                    purple_max_image_size,
+                    640, 480, TRUE, /* Scaled */
+                    _image_download_complete,
+                    _image_download_error,
+                    _image_download_bad_response,
+                    rid);
+        }
+        purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
+                fetch_data);
+        return fetch_data != NULL;
     }
-    purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
-            fetch_data);
-    return fetch_data != NULL;
+    return TRUE;
 }
 
 /**
