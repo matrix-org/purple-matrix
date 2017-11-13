@@ -37,6 +37,8 @@
 #include "matrix-roommembers.h"
 #include "matrix-statetable.h"
 
+#include <gcrypt.h>
+
 
 static gchar *_get_room_name(MatrixConnectionData *conn,
         PurpleConversation *conv);
@@ -634,11 +636,40 @@ struct ReceiveImageData {
     MatrixMediaCryptInfo *crypt;
 };
 
+/* Deal with encrypted image data */
+static void _image_download_complete_crypt(struct ReceiveImageData *rid,
+        const char *raw_body, size_t raw_body_len)
+{
+    void *decrypted = NULL;
+
+    const char *fail_str = matrix_e2e_decrypt_media(rid->crypt,
+                                     raw_body_len, raw_body, &decrypted);
+
+    if (fail_str) {
+        serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
+                rid->sender_display_name, PURPLE_MESSAGE_RECV,
+                g_strdup_printf("%s (%s)",
+                        rid->original_body, fail_str), rid->timestamp / 1000);
+    } else {
+        int img_id = purple_imgstore_add_with_id(decrypted, raw_body_len, NULL);
+        serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id), rid->sender_display_name,
+                PURPLE_MESSAGE_RECV | PURPLE_MESSAGE_IMAGES,
+                g_strdup_printf("<IMG ID=\"%d\">", img_id), rid->timestamp / 1000);
+    }
+
+    g_free(rid->crypt);
+    g_free(rid->original_body);
+    g_free(rid);
+}
+
 static void _image_download_complete(MatrixConnectionData *ma,
           gpointer user_data, JsonNode *json_root,
           const char *raw_body, size_t raw_body_len, const char *content_type)
 {
     struct ReceiveImageData *rid = user_data;
+    if (rid->crypt) {
+        return _image_download_complete_crypt(rid, raw_body, raw_body_len);
+    }
     if (is_known_image_type(content_type)) {
         /* Excellent - something to work with */
         int img_id = purple_imgstore_add_with_id(g_memdup(raw_body, raw_body_len),
@@ -671,6 +702,7 @@ static void _image_download_bad_response(MatrixConnectionData *ma, gpointer user
     purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
             NULL);
     g_free(escaped_body);
+    g_free(rid->crypt);
     g_free(rid->original_body);
     g_free(rid);
 }
@@ -687,6 +719,7 @@ static void _image_download_error(MatrixConnectionData *ma, gpointer user_data,
     purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
             NULL);
     g_free(escaped_body);
+    g_free(rid->crypt);
     g_free(rid->original_body);
     g_free(rid);
 }
