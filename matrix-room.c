@@ -625,15 +625,13 @@ static void _send_image_hook(MatrixRoomEvent *event, gboolean just_free)
     }
 }
 
-/* Passed through matrix_api_download_file all the way
- * downto _image_download_complete
- */
 struct ReceiveImageData {
     PurpleConversation *conv;
     gint64 timestamp;
     const gchar *room_id;
     const gchar *sender_display_name;
     gchar *original_body;
+    MatrixMediaCryptInfo *crypt;
 };
 
 static void _image_download_complete(MatrixConnectionData *ma,
@@ -693,7 +691,6 @@ static void _image_download_error(MatrixConnectionData *ma, gpointer user_data,
     g_free(rid);
 }
 
-
 /*
  * Called from matrix_room_handle_timeline_event when it finds an m.video
  * or m.audio or m.file or m.image; msg_body has the fallback text,
@@ -705,24 +702,31 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
         JsonObject *json_content_object, const gchar *msg_type) {
     MatrixConnectionData *conn = _get_connection_data_from_conversation(conv);
     MatrixApiRequestData *fetch_data = NULL;
+    int is_image = !strcmp("m.image", msg_type);
 
     const gchar *url;
     GString *download_url;
     guint64 size = 0;
     const gchar *mime_type = "unknown";
+    JsonObject *json_file_obj = NULL;
     JsonObject *json_info_object;
 
     url = matrix_json_object_get_string_member(json_content_object, "url");
     if (!url) {
-        /* That seems odd, oh well, no point in getting upset */
-        purple_debug_info("matrixprpl", "failed to get url for media\n");
-        return FALSE;
+        /* Could be a new style format used by the e2e world */
+        json_file_obj = matrix_json_object_get_object_member(
+                json_content_object, "file");
+        if (json_file_obj) {
+            url = matrix_json_object_get_string_member(json_file_obj,
+                    "url");
+        }
+        if (!url) {
+            /* That seems odd, oh well, no point in getting upset */
+            purple_debug_info("matrixprpl", "failed to get url for media\n");
+            return FALSE;
+        }
     }
     download_url = get_download_url(conn->homeserver, url);
-    if (!download_url) {
-        purple_debug_error("matrixprpl", "failed to get download_url for media\n");
-        return FALSE;
-    }
 
     /* the 'info' member is optional */
     json_info_object = matrix_json_object_get_object_member(json_content_object,
@@ -752,7 +756,6 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
      * download that. Otherwise, only for m.image, ask for a server generated
      * thumbnail.
      */
-    int is_image = !strcmp("m.image", msg_type);
     const gchar *thumb_url = "";
     JsonObject *json_thumb_info;
     guint64 thumb_size = 0;
@@ -777,6 +780,20 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
         /* if an m.image is small, get that instead of the thumbnail */
         thumb_url = url;
         thumb_size = size;
+    } else if (json_file_obj) {
+        /* In the world with file members, we've also got a thumbnail_file
+         * member with potentially quite different data.
+         */
+        JsonObject *tmp_file_obj =  matrix_json_object_get_object_member(
+                        json_info_object, "thumbnail_file");
+        if (tmp_file_obj) {
+            const char *tmp_url;
+            tmp_url = matrix_json_object_get_string_member(tmp_file_obj, "url");
+            if (tmp_url) {
+                thumb_url = tmp_url;
+                json_file_obj = tmp_file_obj;
+            }
+        }
     }
     if (thumb_url || is_image) {
         struct ReceiveImageData *rid;
@@ -787,6 +804,17 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
         rid->room_id = room_id;
         rid->original_body = g_strdup(msg_body);
 
+        if (json_file_obj) {
+            /* It's almost certainly encrypted data, extract the info.
+             * Note if it is then we must fetch the raw, we can't ask for the server
+             * to generate a thumb.
+             */
+            if (!matrix_e2e_parse_media_decrypt_info(&rid->crypt, json_file_obj)) {
+                g_free(rid);
+                return FALSE;
+            }
+        }
+
         if (thumb_url && (thumb_size > 0) && (thumb_size < purple_max_media_size)) {
             fetch_data = matrix_api_download_file(conn, thumb_url,
                     purple_max_media_size,
@@ -794,7 +822,7 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
                     _image_download_error,
                     _image_download_bad_response,
                     rid);
-        } else if (thumb_url) {
+        } else if (thumb_url && !rid->crypt) {
             /* Ask the server to generate a thumbnail of the thumbnail.
              * Useful to improve the chance of showing something when the
              * original thumbnail is too big.
@@ -806,7 +834,7 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
                     _image_download_error,
                     _image_download_bad_response,
                     rid);
-        } else {
+        } else if (!rid->crypt) {
             /* Ask the server to generate a thumbnail. Only for m.image.
              * TODO: Configure the size of thumbnails.
              * 640x480 is a good a width as any and reasonably likely to
@@ -823,6 +851,9 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
         }
         purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
                 fetch_data);
+        if (!fetch_data) {
+            g_free(rid->crypt);
+        }
         return fetch_data != NULL;
     }
     return TRUE;
