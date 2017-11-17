@@ -72,8 +72,12 @@ static MatrixConnectionData *_get_connection_data_from_conversation(
 #define PURPLE_CONV_FLAGS "flags"
 #define PURPLE_CONV_FLAG_NEEDS_NAME_UPDATE 0x1
 
-/* Arbitrary limit on the size of an image to receive; should make configurable */
-static const size_t purple_max_media_size=250*1024;
+/* Arbitrary limit on the size of an image to receive; should make
+ * configurable. This is based on the worst-case assumption of a
+ * 640x480 pixels, each with 3 bytes i.e. 900KiB. 640x480 is also the
+ * server generated thumbnail size.
+ */
+static const size_t purple_max_media_size=640*480*3;
 
 /**
  * Get the member table for a room
@@ -744,24 +748,29 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
     const gchar *thumb_url = "";
     JsonObject *json_thumb_info;
     guint64 thumb_size = 0;
-    if ((!strcmp("m.video", msg_type)) && json_info_object) {
-        /* m.video can have an info object containing thumbnail_* memebers */
-        thumb_url = matrix_json_object_get_string_member(json_info_object, "thumbnail_url");
-        json_thumb_info = matrix_json_object_get_object_member(json_info_object, "thumbnail_info");
-    } else {
-        /* m.image and m.file can have thumbnail_* members directly in the content object */
-        thumb_url = matrix_json_object_get_string_member(json_content_object, "thumbnail_url");
-        json_thumb_info = matrix_json_object_get_object_member(json_content_object, "thumbnail_info");
-    }
+    /* r0.2.0 -> r0.3.0
+     * m.image content.thumb* -> content.info.thumb*
+     * m.video -
+     * m.file  content.thumb* -> content.info.thumb*
+     */
+    thumb_url = matrix_json_object_get_string_member(json_info_object, "thumbnail_url");
+    json_thumb_info = matrix_json_object_get_object_member(json_info_object, "thumbnail_info");
     if (json_thumb_info) {
         thumb_size = matrix_json_object_get_int_member(json_thumb_info, "size");
+    } else {
+        /* m.image and m.file had thumbnail_* members directly in the content object prior to r0.3.0 */
+        thumb_url = matrix_json_object_get_string_member(json_content_object, "thumbnail_url");
+        json_thumb_info = matrix_json_object_get_object_member(json_content_object, "thumbnail_info");
+        if (json_thumb_info) {
+            thumb_size = matrix_json_object_get_int_member(json_thumb_info, "size");
+        }
     }
     if (is_image && (size > 0) && (size < purple_max_media_size)) {
         /* if an m.image is small, get that instead of the thumbnail */
         thumb_url = url;
         thumb_size = size;
     }
-    if ((thumb_url && (thumb_size > 0) && (thumb_size < purple_max_media_size)) || is_image) {
+    if (thumb_url || is_image) {
         struct ReceiveImageData *rid;
         rid = g_new0(struct ReceiveImageData, 1);
         rid->conv = conv;
@@ -773,6 +782,18 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
         if (thumb_url && (thumb_size > 0) && (thumb_size < purple_max_media_size)) {
             fetch_data = matrix_api_download_file(conn, thumb_url,
                     purple_max_media_size,
+                    _image_download_complete,
+                    _image_download_error,
+                    _image_download_bad_response,
+                    rid);
+        } else if (thumb_url) {
+            /* Ask the server to generate a thumbnail of the thumbnail.
+             * Useful to improve the chance of showing something when the
+             * original thumbnail is too big.
+             */
+            fetch_data = matrix_api_download_thumb(conn, thumb_url,
+                    purple_max_media_size,
+                    640, 480, TRUE, /* Scaled */
                     _image_download_complete,
                     _image_download_error,
                     _image_download_bad_response,
