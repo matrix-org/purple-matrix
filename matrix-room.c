@@ -21,10 +21,13 @@
 /* stdlib */
 #include <inttypes.h>
 #include <string.h>
+#include <errno.h>
+
+#include <glib/gstdio.h>
 
 /* libpurple */
-#include "connection.h"
-#include "debug.h"
+#include <libpurple/connection.h>
+#include <libpurple/debug.h>
 
 #include "libmatrix.h"
 #include "matrix-api.h"
@@ -69,8 +72,12 @@ static MatrixConnectionData *_get_connection_data_from_conversation(
 #define PURPLE_CONV_FLAGS "flags"
 #define PURPLE_CONV_FLAG_NEEDS_NAME_UPDATE 0x1
 
-/* Arbitrary limit on the size of an image to receive; should make configurable */
-static const size_t purple_max_image_size=250*1024;
+/* Arbitrary limit on the size of an image to receive; should make
+ * configurable. This is based on the worst-case assumption of a
+ * 640x480 pixels, each with 3 bytes i.e. 900KiB. 640x480 is also the
+ * server generated thumbnail size.
+ */
+static const size_t purple_max_media_size=640*480*3;
 
 /**
  * Get the member table for a room
@@ -652,7 +659,7 @@ static void _image_download_bad_response(MatrixConnectionData *ma, gpointer user
     gchar *escaped_body = purple_markup_escape_text(rid->original_body, -1);
     serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
             rid->sender_display_name, PURPLE_MESSAGE_RECV,
-            g_strdup_printf("%s (failed to download %d)",
+            g_strdup_printf("%s (bad response to download image %d)",
                     escaped_body, http_response_code),
                     rid->timestamp / 1000);
     purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
@@ -669,7 +676,7 @@ static void _image_download_error(MatrixConnectionData *ma, gpointer user_data,
     gchar *escaped_body = purple_markup_escape_text(rid->original_body, -1);
     serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
             rid->sender_display_name, PURPLE_MESSAGE_RECV,
-            g_strdup_printf("%s (failed to download %s)",
+            g_strdup_printf("%s (failed to download image %s)",
                     escaped_body, error_message), rid->timestamp / 1000);
     purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
             NULL);
@@ -680,93 +687,137 @@ static void _image_download_error(MatrixConnectionData *ma, gpointer user_data,
 
 
 /*
- * Called from matrix_room_handle_timeline_event when it finds an m.image;
- * msg_body has the fallback text,
+ * Called from matrix_room_handle_timeline_event when it finds an m.video
+ * or m.audio or m.file or m.image; msg_body has the fallback text,
  * json_content_object has the json for the content sub object
- *
- * Return TRUE if we managed to download the image and everything needed
- *        FALSE if we failed; caller does fallback.
  */
-static gboolean _handle_incoming_image(PurpleConversation *conv,
+static gboolean _handle_incoming_media(PurpleConversation *conv,
         const gint64 timestamp, const gchar *room_id,
         const gchar *sender_display_name, const gchar *msg_body,
-        JsonObject *json_content_object) {
+        JsonObject *json_content_object, const gchar *msg_type) {
     MatrixConnectionData *conn = _get_connection_data_from_conversation(conv);
     MatrixApiRequestData *fetch_data = NULL;
-    struct ReceiveImageData *rid;
-    gboolean use_thumb = FALSE;
 
     const gchar *url;
+    GString *download_url;
+    guint64 size = 0;
+    const gchar *mime_type = "unknown";
     JsonObject *json_info_object;
 
     url = matrix_json_object_get_string_member(json_content_object, "url");
     if (!url) {
         /* That seems odd, oh well, no point in getting upset */
-        purple_debug_info("matrixprpl", "failed to get url for m.image");
+        purple_debug_info("matrixprpl", "failed to get url for media\n");
+        return FALSE;
+    }
+    download_url = get_download_url(conn->homeserver, url);
+    if (!download_url) {
+        purple_debug_error("matrixprpl", "failed to get download_url for media\n");
         return FALSE;
     }
 
-    /* the 'info' member is optional but if we've got it we can check it to early
-     * reject the image if it's something that's huge or we don't know the title.
-     */
+    /* the 'info' member is optional */
     json_info_object = matrix_json_object_get_object_member(json_content_object,
             "info");
-    purple_debug_info("matrixprpl", "%s: %s json_info_object=%p\n", __func__,
-            url, json_info_object);
     if (json_info_object) {
-        guint64 size;
-        const gchar *mime_type;
-
-        /* OK, we've got some (optional) info on the image */
+        /* OK, we've got some (optional) info */
         size = matrix_json_object_get_int_member(json_info_object, "size");
-        if (size > purple_max_image_size) {
-            use_thumb = TRUE;
-        }
         mime_type = matrix_json_object_get_string_member(json_info_object,
                         "mimetype");
-        if (mime_type) {
-            if (!is_known_image_type(mime_type)) {
-                purple_debug_info("matrixprpl", "%s: unknown mimetype %s",
-                        __func__, mime_type);
-                return FALSE;
-            }
-        }
-        purple_debug_info("matrixprpl", "image info good: %s of %" PRId64,
+        purple_debug_info("matrixprpl", "media info good: %s of %" PRId64 "\n",
                           mime_type, size);
     }
 
-    rid = g_new0(struct ReceiveImageData, 1);
-    rid->conv = conv;
-    rid->timestamp = timestamp;
-    rid->sender_display_name = sender_display_name;
-    rid->room_id = room_id;
-    rid->original_body = g_strdup(msg_body);
+    serv_got_chat_in(conv->account->gc, g_str_hash(room_id),
+            sender_display_name, PURPLE_MESSAGE_RECV,
+            /* TODO convert size into a human readable format */
+            g_strdup_printf("%s (type %s size %" PRId64 ") %s",
+                    msg_body, mime_type, size, download_url->str), timestamp / 1000);
 
-    if (!use_thumb) {
-            fetch_data = matrix_api_download_file(conn, url,
-                    purple_max_image_size,
+    /* m.audio is not supposed to have a thumbnail, handling completed
+     */
+    if (!strcmp("m.audio", msg_type)) {
+        return TRUE;
+    }
+
+    /* If a thumbnail_url is available and the thumbnail size is small,
+     * download that. Otherwise, only for m.image, ask for a server generated
+     * thumbnail.
+     */
+    int is_image = !strcmp("m.image", msg_type);
+    const gchar *thumb_url = "";
+    JsonObject *json_thumb_info;
+    guint64 thumb_size = 0;
+    /* r0.2.0 -> r0.3.0
+     * m.image content.thumb* -> content.info.thumb*
+     * m.video -
+     * m.file  content.thumb* -> content.info.thumb*
+     */
+    thumb_url = matrix_json_object_get_string_member(json_info_object, "thumbnail_url");
+    json_thumb_info = matrix_json_object_get_object_member(json_info_object, "thumbnail_info");
+    if (json_thumb_info) {
+        thumb_size = matrix_json_object_get_int_member(json_thumb_info, "size");
+    } else {
+        /* m.image and m.file had thumbnail_* members directly in the content object prior to r0.3.0 */
+        thumb_url = matrix_json_object_get_string_member(json_content_object, "thumbnail_url");
+        json_thumb_info = matrix_json_object_get_object_member(json_content_object, "thumbnail_info");
+        if (json_thumb_info) {
+            thumb_size = matrix_json_object_get_int_member(json_thumb_info, "size");
+        }
+    }
+    if (is_image && (size > 0) && (size < purple_max_media_size)) {
+        /* if an m.image is small, get that instead of the thumbnail */
+        thumb_url = url;
+        thumb_size = size;
+    }
+    if (thumb_url || is_image) {
+        struct ReceiveImageData *rid;
+        rid = g_new0(struct ReceiveImageData, 1);
+        rid->conv = conv;
+        rid->timestamp = timestamp;
+        rid->sender_display_name = sender_display_name;
+        rid->room_id = room_id;
+        rid->original_body = g_strdup(msg_body);
+
+        if (thumb_url && (thumb_size > 0) && (thumb_size < purple_max_media_size)) {
+            fetch_data = matrix_api_download_file(conn, thumb_url,
+                    purple_max_media_size,
                     _image_download_complete,
                     _image_download_error,
-                    _image_download_bad_response, rid);
-    } else {
-            /* TODO: Configure the size of thumbnails, and provide
-             * a way for the user to get the full image if they want.
+                    _image_download_bad_response,
+                    rid);
+        } else if (thumb_url) {
+            /* Ask the server to generate a thumbnail of the thumbnail.
+             * Useful to improve the chance of showing something when the
+             * original thumbnail is too big.
+             */
+            fetch_data = matrix_api_download_thumb(conn, thumb_url,
+                    purple_max_media_size,
+                    640, 480, TRUE, /* Scaled */
+                    _image_download_complete,
+                    _image_download_error,
+                    _image_download_bad_response,
+                    rid);
+        } else {
+            /* Ask the server to generate a thumbnail. Only for m.image.
+             * TODO: Configure the size of thumbnails.
              * 640x480 is a good a width as any and reasonably likely to
              * fit in the byte size limit unless someone has a big long
              * tall png.
              */
             fetch_data = matrix_api_download_thumb(conn, url,
-                    purple_max_image_size,
+                    purple_max_media_size,
                     640, 480, TRUE, /* Scaled */
                     _image_download_complete,
                     _image_download_error,
-                    _image_download_bad_response, rid);
+                    _image_download_bad_response,
+                    rid);
+        }
+        purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
+                fetch_data);
+        return fetch_data != NULL;
     }
-
-    purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
-            fetch_data);
-
-    return fetch_data != NULL;
+    return TRUE;
 }
 
 /**
@@ -937,12 +988,13 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
 
     if (!strcmp(msg_type, "m.emote")) {
         tmp_body = g_strdup_printf("/me %s", msg_body);
-    } else if (!strcmp(msg_type, "m.image")) {
-        if (_handle_incoming_image(conv, timestamp, room_id, sender_display_name,
-                    msg_body, json_content_obj)) {
+    } else if ((!strcmp(msg_type, "m.video")) || (!strcmp(msg_type, "m.audio")) || \
+            (!strcmp(msg_type, "m.file")) || (!strcmp(msg_type, "m.image"))) {
+        if (_handle_incoming_media(conv, timestamp, room_id, sender_display_name,
+                    msg_body, json_content_obj, msg_type)) {
             return;
         }
-        /* Fall through - we couldn't get the image, treat as text */
+        /* Fall through - we couldn't handle the media, treat as text */
     }
     flags = PURPLE_MESSAGE_RECV;
 
