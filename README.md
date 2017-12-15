@@ -27,13 +27,22 @@ v0.12.0-rc1 or later is sufficient.
 
 # Installation
 
-Currently there are no pre-built binaries, so the plugin needs to be built
+Pre-built binaries are available for Ubuntu since version 17.04 (Zesty Zapus).
+You should be able to install them giving the following commands in a terminal
+window:
+
+```
+sudo apt update
+sudo apt install purple-matrix
+```
+
+For other GNU/Linux systems the plugin needs to be built
 from source.
 
 You will need development headers/libraries for the following:
 * libpurple 2.x [libpurple-dev]
 * libjson-glib  [libjson-glib-dev]
-* libglib [libglib-dev (or libglib2.0-dev on ubuntu 16.04 xenial)]
+* libglib [libglib-dev (or libglib2.0-dev on Ubuntu 16.04 xenial)]
 * libhttp_parser [libhttp-parser-dev].
 
 You should then be able to:

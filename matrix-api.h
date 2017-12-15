@@ -301,6 +301,15 @@ MatrixApiRequestData *matrix_api_upload_file(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+
+/* Get the complete download url for a given uri
+ *
+ * @param homeserver        The server hosting the file
+ * @param uri               The file uri
+ */
+GString *get_download_url(const gchar *homeserver, const gchar *uri);
+
+
 /**
  * Download a file
  *
