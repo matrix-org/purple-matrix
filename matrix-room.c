@@ -228,12 +228,14 @@ static void _on_typing(PurpleConversation *conv,
         
         if (new_user_found == FALSE) {
             roommember = matrix_roommembers_lookup_member(member_table, user_id);
-            displayname = matrix_roommember_get_displayname(roommember);
+            if (roommember) {
+                displayname = matrix_roommember_get_displayname(roommember);
             
-            // in old list, not in new, i.e. stopped typing
-            cbflags = purple_conv_chat_user_get_flags(chat, displayname);
-            cbflags &= ~PURPLE_CBFLAGS_TYPING;
-            purple_conv_chat_user_set_flags(chat, displayname, cbflags);
+                // in old list, not in new, i.e. stopped typing
+                cbflags = purple_conv_chat_user_get_flags(chat, displayname);
+                cbflags &= ~PURPLE_CBFLAGS_TYPING;
+                purple_conv_chat_user_set_flags(chat, displayname, cbflags);
+            }
         }
     }
     
@@ -244,11 +246,13 @@ static void _on_typing(PurpleConversation *conv,
         const gchar *displayname;
         
         roommember = matrix_roommembers_lookup_member(member_table, user_id);
-        displayname = matrix_roommember_get_displayname(roommember);
+        if (roommember) {
+            displayname = matrix_roommember_get_displayname(roommember);
     
-        cbflags = purple_conv_chat_user_get_flags(chat, displayname);
-        cbflags |= PURPLE_CBFLAGS_TYPING;
-        purple_conv_chat_user_set_flags(chat, displayname, cbflags);
+            cbflags = purple_conv_chat_user_get_flags(chat, displayname);
+            cbflags |= PURPLE_CBFLAGS_TYPING;
+            purple_conv_chat_user_set_flags(chat, displayname, cbflags);
+        }
     }
     
 }
