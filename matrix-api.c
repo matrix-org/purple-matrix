@@ -774,9 +774,9 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
     MatrixApiRequestData *fetch_data;
 
     url = g_string_new(conn->homeserver);
-    g_string_append(url, "_matrix/client/r0/rooms/");
+    g_string_append(url, "_matrix/client/r0/join/");
     g_string_append(url, purple_url_encode(room));
-    g_string_append(url, "/join?access_token=");
+    g_string_append(url, "?access_token=");
     g_string_append(url, purple_url_encode(conn->access_token));
 
     purple_debug_info("matrixprpl", "joining %s\n", room);
