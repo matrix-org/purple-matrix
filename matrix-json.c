@@ -232,6 +232,37 @@ GString *matrix_canonical_json(JsonObject *object)
     return canonical_json_object(object, NULL);
 }
 
+/* Decode a json web signature (JWS) which is almost base64,
+ * its needs _ -> / and - -> + and some = padding.
+ * as https://tools.ietf.org/html/draft-ietf-jose-json-web-signature-41#appendix-C
+ * The output buffer should be upto 3 bytes longer than the input
+ * depending on the amount of = padding needed.
+ */
+void matrix_json_jws_tobase64(gchar *out, const gchar *in)
+{
+    unsigned int i;
+    for (i=0;in[i];i++) {
+        out[i] = in[i];
+        switch (in[i]) {
+            case '-':
+                out[i] = '+';
+                break;
+
+            case '_':
+                out[i] = '/';
+                break;
+
+            default:
+                break;
+        }
+    }
+    while (i & 3) {
+        out[i] = '=';
+        i++;
+    }
+    out[i] = '\0';
+}
+
 /* Just dump the Json with the string prefix for debugging */
 void matrix_debug_jsonobject(const char *reason, JsonObject *object)
 {
