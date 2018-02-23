@@ -33,6 +33,7 @@
 #include "connection.h"
 #ifndef MATRIX_NO_E2E
 #include "olm/olm.h"
+#include <gcrypt.h>
 
 struct _MatrixOlmSession;
 
@@ -1788,6 +1789,56 @@ gboolean matrix_e2e_parse_media_decrypt_info(MatrixMediaCryptInfo **crypt,
     return TRUE;
 }
 
+/* Decrypt media (in or inlen) into a buffer it allocates (*out)
+ * returns NULL or an error string.
+ */
+const char *matrix_e2e_decrypt_media(MatrixMediaCryptInfo *crypt,
+                                     size_t inlen, const void *in, void **out)
+{
+    char *fail_str = NULL;
+    gcry_error_t gcry_err;
+    gcry_cipher_hd_t cipher_hd;
+    gboolean copen = FALSE;
+
+    *out = NULL;
+    gcry_err = gcry_cipher_open(&cipher_hd, GCRY_CIPHER_AES256, GCRY_CIPHER_MODE_CTR, 0);
+    if (gcry_err) {
+        fail_str = "failed to open cipher";
+        goto err;
+    }
+    copen = TRUE;
+    gcry_err = gcry_cipher_setkey(cipher_hd, crypt->aes_k, 32);
+    if (gcry_err) {
+        fail_str = "failed to set key";
+        goto err;
+    }
+    /* Note: this is only working if we use setctr not setiv */
+    gcry_err = gcry_cipher_setctr(cipher_hd, crypt->aes_iv, 16);
+    if (gcry_err) {
+        fail_str = "failed to set iv";
+        goto err;
+    }
+    *out = g_malloc(inlen); /* Do I need to round this to block len? */
+    gcry_cipher_final(cipher_hd);
+    gcry_err = gcry_cipher_decrypt(cipher_hd, *out, inlen, in, inlen);
+    if (gcry_err) {
+        g_free(*out);
+        fail_str = "failed to decrypt";
+        goto err;
+    }
+
+    gcry_cipher_close(cipher_hd);
+
+    return NULL;
+
+err:
+    g_free(*out);
+    *out = NULL;
+    if (copen) gcry_cipher_close(cipher_hd);
+
+    return fail_str;
+}
+
 static void action_device_info(PurplePluginAction *action)
 {
     PurpleConnection *pc = (PurpleConnection *) action->context;
@@ -1856,6 +1907,13 @@ gboolean matrix_e2e_parse_media_decrypt_info(MatrixMediaCryptInfo **crypt,
 
     return TRUE;
 }
+
+const char *matrix_e2e_decrypt_media(MatrixMediaCryptInfo *crypt,
+                                     size_t inlen, const void *in, void **out)
+{
+    return "Crypto not available";
+}
+
 
 GList *matrix_e2e_actions(GList *list)
 {
