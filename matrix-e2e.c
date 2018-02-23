@@ -74,6 +74,12 @@ typedef struct _MatrixHashKeyInBoundMegOlm {
     gchar *device_id;
 } MatrixHashKeyInBoundMegOlm;
 
+struct _MatrixMediaCryptInfo {
+    guchar sha256[32];
+    guchar aes_k[32];
+    guchar aes_iv[16];
+};
+
 static void key_upload_callback(MatrixConnectionData *conn,
                                 gpointer user_data,
                                 struct _JsonNode *json_root,
@@ -1704,6 +1710,84 @@ out:
     return plaintext_parser;
 }
 
+/* Parse the 'file' object on media to extract keys, returns
+ * FALSE if there's a problem, returns TRUE whether or not there's
+ * any crypto information, returns TRUE and allocates *crypt
+ * with the keys if the crypto info is there.
+ * The *crypt should be g_free'd by someone later.
+ */
+gboolean matrix_e2e_parse_media_decrypt_info(MatrixMediaCryptInfo **crypt,
+                                             JsonObject *file_obj)
+{
+    const gchar *v_str = matrix_json_object_get_string_member(file_obj, "v");
+    const gchar *iv_str = matrix_json_object_get_string_member(file_obj, "iv");
+    /* RFC7517 JSON Web Key */
+    JsonObject *key_obj = matrix_json_object_get_object_member(file_obj,
+                                                               "key");
+    JsonObject *hashes_obj = matrix_json_object_get_object_member(file_obj,
+                                                               "hashes");
+    const gchar *alg_str = matrix_json_object_get_string_member(key_obj, "alg");
+    const gchar *kty_str = matrix_json_object_get_string_member(key_obj, "kty");
+    const gchar *k_str = matrix_json_object_get_string_member(key_obj, "k");
+    const gchar *sha256_str = matrix_json_object_get_string_member(hashes_obj,
+                                                                   "sha256");
+    if (!v_str || strcmp(v_str, "v2")) {
+        purple_debug_info("matrixprpl", "bad media decrypt version\n");
+        return FALSE;
+    }
+    if (!iv_str || !alg_str || !kty_str || !k_str || !sha256_str) {
+        purple_debug_info("matrixprpl", "missing media decrypt field\n");
+        /* Potentially this is OK, just not crypted */
+        return TRUE;
+    }
+    if (strcmp(alg_str, "A256CTR") || strcmp(kty_str, "oct")) {
+        purple_debug_info("matrixprpl", "media decrypt: bad alg/kty :%s/%s\n",
+                alg_str, kty_str);
+        return FALSE;
+    }
+    if (strlen(iv_str) != 22 || strlen(sha256_str) != 43 ||
+        strlen(k_str) != 43) {
+        purple_debug_info("matrixprpl", "media decrypt: Bad key/sha len:"
+                " iv: %s sha256: %s k: %s\n", iv_str, sha256_str, k_str);
+        return FALSE;
+    }
+
+    /* The k_str isn't a simple base64, it's a JSON web signature that needs
+     * to be decoded first.
+     */
+    gchar tmp_str[48];
+    gsize k_len, iv_len, sha256_len;
+    matrix_json_jws_tobase64(tmp_str, k_str);
+    guchar *decoded_k = g_base64_decode(tmp_str, &k_len);
+    matrix_json_jws_tobase64(tmp_str, iv_str);
+    guchar *decoded_iv = g_base64_decode(tmp_str, &iv_len);
+    matrix_json_jws_tobase64(tmp_str, sha256_str);
+    guchar *decoded_sha256 = g_base64_decode(tmp_str, &sha256_len);
+
+    if (k_len != 32 || iv_len != 16 || sha256_len != 32) {
+        purple_debug_info("matrixprpl", "media decrypt: Bad base64 decode:"
+                " iv: %s=%zd sha256: %s=%zd k: %s=%zd\n",
+                iv_str, iv_len, sha256_str, sha256_len,  k_str, k_len);
+        g_free(decoded_k);
+        g_free(decoded_iv);
+        g_free(decoded_sha256);
+        return FALSE;
+    }
+    purple_debug_info("matrixprpl", "media decrypt: got decrypt keys\n");
+
+    *crypt = g_new0(MatrixMediaCryptInfo, 1);
+    memcpy((*crypt)->sha256, decoded_sha256, 32);
+    memcpy((*crypt)->aes_k, decoded_k, 32);
+    memcpy((*crypt)->aes_iv, decoded_iv, 16);
+
+    clear_mem((char *)decoded_k, sizeof(decoded_k));
+    g_free(decoded_k);
+    g_free(decoded_iv);
+    g_free(decoded_sha256);
+
+    return TRUE;
+}
+
 static void action_device_info(PurplePluginAction *action)
 {
     PurpleConnection *pc = (PurpleConnection *) action->context;
@@ -1758,6 +1842,19 @@ void matrix_e2e_handle_sync_key_counts(PurpleConnection *pc, JsonObject *count_o
 
 void matrix_e2e_cleanup_conversation(PurpleConversation *conv)
 {
+}
+
+gboolean matrix_e2e_parse_media_decrypt_info(MatrixMediaCryptInfo **crypt,
+                                             JsonObject *file_obj)
+{
+    JsonObject *key_obj = matrix_json_object_get_object_member(file_obj,
+                                                               "key");
+    if (key_obj) {
+        /* This has a key but with crypto turned off we'll have to fail */
+        return FALSE;
+    }
+
+    return TRUE;
 }
 
 GList *matrix_e2e_actions(GList *list)
