@@ -905,6 +905,20 @@ MatrixApiRequestData *matrix_api_upload_file(MatrixConnectionData *conn,
     return fetch_data;
 }
 
+GString *get_download_url(const gchar *homeserver, const gchar *uri)
+{
+    GString *url;
+
+    /* Sanity check the uri - TODO: Add more sanity */
+    if (strncmp(uri, "mxc://", 6)) {
+        return NULL;
+    }
+    url = g_string_new(homeserver);
+    g_string_append(url, "_matrix/media/r0/download/");
+    g_string_append(url, uri + 6); /* i.e. after the mxc:// */
+    return url;
+}
+
 /**
  * Download a file
  * @param uri       URI string in the form mxc://example.com/unique
@@ -920,14 +934,11 @@ MatrixApiRequestData *matrix_api_download_file(MatrixConnectionData *conn,
     GString *url;
     MatrixApiRequestData *fetch_data;
 
-    /* Sanity check the uri - TODO: Add more sanity */
-    if (strncmp(uri, "mxc://", 6)) {
+    url = get_download_url(conn->homeserver, uri);
+    if (!url) {
         error_callback(conn, user_data, "bad media uri");
         return NULL;
     }
-    url = g_string_new(conn->homeserver);
-    g_string_append(url, "_matrix/media/r0/download/");
-    g_string_append(url, uri + 6); /* i.e. after the mxc:// */
 
     /* I'd like to validate the headers etc a bit before downloading the
      * data (maybe using _handle_header_completed), also I'm not convinced
