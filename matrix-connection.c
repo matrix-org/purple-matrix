@@ -186,6 +186,8 @@ static void _login_completed(MatrixConnectionData *conn,
             "user_id"));
     device_id = matrix_json_object_get_string_member(root_obj, "device_id");
     purple_account_set_string(pc->account, "device_id", device_id);
+    purple_account_set_string(pc->account, PRPL_ACCOUNT_OPT_ACCESS_TOKEN,
+            access_token);
 
     if (device_id) {
         matrix_e2e_get_device_keys(conn, device_id);
