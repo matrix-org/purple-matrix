@@ -105,7 +105,7 @@ typedef struct {
     gchar *content_type;
     gboolean got_headers;
     JsonParser *json_parser;
-    const char *body;
+    char *body;
     size_t body_len;
 } MatrixApiResponseParserData;
 
@@ -134,6 +134,9 @@ static void _response_parser_data_free(MatrixApiResponseParserData *data)
     /* free the JSON parser, and all of the node structures */
     if(data -> json_parser)
         g_object_unref(data -> json_parser);
+    g_free(data->body);
+    data->body = NULL;
+
     g_free(data);
 }
 
@@ -203,35 +206,45 @@ static int _handle_headers_complete(http_parser *http_parser)
 
 /**
  * callback from the http parser which handles the message body
+ * Can be called multiple times as we accumulate chunks.
  */
 static int _handle_body(http_parser *http_parser, const char *at,
         size_t length)
 {
     MatrixApiResponseParserData *response_data = http_parser->data;
-    GError *err = NULL;
-
     if(purple_debug_is_verbose())
         purple_debug_info("matrixprpl", "Handling API response body %.*s\n",
                 (int)length, at);
 
+    response_data->body = g_realloc(response_data->body,
+                                    response_data->body_len + length);
+    memcpy(response_data->body + response_data->body_len, at, length);
+    response_data->body_len += length;
+
+    return 0;
+}
+
+/**
+ * callback from the http parser after all chunks have arrived.
+ */
+static int _handle_message_complete(http_parser *http_parser)
+{
+    MatrixApiResponseParserData *response_data = http_parser->data;
+    GError *err = NULL;
+
     if(strcmp(response_data->content_type, "application/json") == 0) {
-        if(!json_parser_load_from_data(response_data -> json_parser, at, length,
+        if(!json_parser_load_from_data(response_data -> json_parser,
+                                       response_data->body,
+                                       response_data->body_len,
                 &err)) {
             purple_debug_info("matrixprpl", "unable to parse JSON: %s\n",
                     err->message);
             g_error_free(err);
             return 1;
         }
-    } else {
-        /* Well if it's not JSON perhaps the callback is expecting to
-         * handle it itself, e.g. for an image.
-         */
-        response_data->body = at;
-        response_data->body_len = length;
     }
     return 0;
 }
-
 
 
 /**
@@ -270,6 +283,7 @@ static void matrix_api_complete(PurpleUtilFetchUrlData *url_data,
         http_parser_settings.on_header_value = _handle_header_value;
         http_parser_settings.on_headers_complete = _handle_headers_complete;
         http_parser_settings.on_body = _handle_body;
+        http_parser_settings.on_message_complete = _handle_message_complete;
 
         http_parser_init(&http_parser, HTTP_RESPONSE);
         http_parser.data = response_data;
