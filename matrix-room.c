@@ -31,6 +31,7 @@
 
 #include "libmatrix.h"
 #include "matrix-api.h"
+#include "matrix-e2e.h"
 #include "matrix-event.h"
 #include "matrix-json.h"
 #include "matrix-roommembers.h"
@@ -290,6 +291,9 @@ static void _on_state_update(const gchar *event_type,
             strcmp(event_type, "m.room.canonical_alias") == 0 ||
             strcmp(event_type, "m.room.name") == 0) {
         _schedule_name_update(conv);
+    } else if (strcmp(event_type, "m.room.encryption") == 0) {
+        purple_debug_info("matrixprpl",
+                          "Got m.room.encryption on_state_update\n");
     }
     else if(strcmp(event_type, "m.typing") == 0) {
         _on_typing(conv, old_state, new_state);
@@ -928,6 +932,7 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     gchar *tmp_body = NULL;
     gchar *escaped_body = NULL;
     PurpleMessageFlags flags;
+    JsonParser *decrypted_parser = NULL;
 
     const gchar *sender_display_name;
     MatrixRoomMember *sender = NULL;
@@ -945,6 +950,31 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     if(event_type == NULL) {
         purple_debug_warning("matrixprpl", "event missing type field");
         return;
+    }
+
+    if(!strcmp(event_type, "m.room.encrypted")) {
+        purple_debug_info("matrixprpl", "Got an m.room.encrypted!\n");
+        decrypted_parser = matrix_e2e_decrypt_room(conv, json_event_obj);
+        if (!decrypted_parser) {
+            purple_debug_warning("matrixprpl",
+                                 "Failed to decrypt m.room.encrypted");
+            return;
+        }
+        JsonNode *decrypted_node = json_parser_get_root(decrypted_parser);
+        JsonObject *decrypted_body;
+        decrypted_body = matrix_json_node_get_object(decrypted_node);
+        event_type = matrix_json_object_get_string_member(decrypted_body,
+                                                               "type");
+        json_content_obj = matrix_json_object_get_object_member(decrypted_body,
+                                                               "content");
+        // TODO: Check room_id matches
+        // TODO: Add some info about device trust etc
+        if (!event_type || !json_content_obj) {
+            purple_debug_warning("matrixprpl",
+                                 "Failed to find members of decrypted json");
+            g_object_unref(decrypted_parser);
+            return;
+        }
     }
 
     if(strcmp(event_type, "m.room.message") != 0) {
@@ -1013,6 +1043,9 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     serv_got_chat_in(conv->account->gc, g_str_hash(room_id),
             sender_display_name, flags, escaped_body, timestamp / 1000);
     g_free(escaped_body);
+    if (decrypted_parser) {
+        g_object_unref(decrypted_parser);
+    }
 }
 
 
@@ -1081,6 +1114,7 @@ void matrix_room_leave_chat(PurpleConversation *conv)
         g_list_free_full(event_queue, (GDestroyNotify)matrix_event_free);
         purple_conversation_set_data(conv, PURPLE_CONV_DATA_EVENT_QUEUE, NULL);
     }
+    matrix_e2e_cleanup_conversation(conv);
 }
 
 

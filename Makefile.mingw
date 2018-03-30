@@ -12,6 +12,13 @@ CFLAGS += -I$(PIDGIN_TREE_TOP)/libpurple -I$(JSON_GLIB_TOP)/include/json-glib-1.
 LDLIBS += -L$(PIDGIN_TREE_TOP)/libpurple -lpurple -L$(JSON_GLIB_TOP)/lib -ljson-glib-1.0 -L$(GLIB_TOP)/bin -lglib-2.0-0 -lgobject-2.0-0
 LDLIBS += -L$(HTTP_PARSER_TOP) -lhttp_parser -static-libgcc
 
+ifndef MATRIX_NO_E2E
+OLM_TOP ?= $(WIN32_DEV_TOP)/olm
+CFLAGS +=  -I$(OLM_TOP)/include
+LDLIBS+= -L$(OLM_TOP)/build -lolm
+endif
+
+
 PLUGIN_DIR_PURPLE	=  "C:\Program Files (x86)\Pidgin\plugins"
 DATA_ROOT_DIR_PURPLE	=  "C:\Program Files (x86)\Pidgin"
 
