@@ -1011,6 +1011,31 @@ MatrixApiRequestData *matrix_api_download_thumb(MatrixConnectionData *conn,
     return fetch_data;
 }
 
+/**
+ * Returns the userid for our access token, mostly as a check our token
+ * is valid.
+ */
+MatrixApiRequestData *matrix_api_whoami(MatrixConnectionData *conn,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append_printf(url,
+            "_matrix/client/r0/account/whoami?access_token=%s",
+            purple_url_encode(conn->access_token));
+
+    fetch_data = matrix_api_start(url->str, "GET", NULL, conn, callback,
+            error_callback, bad_response_callback, user_data, 10*1024);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
+}
+
 MatrixApiRequestData *matrix_api_upload_keys(MatrixConnectionData *conn,
         JsonObject *device_keys, JsonObject *one_time_keys,
         MatrixApiCallback callback,
