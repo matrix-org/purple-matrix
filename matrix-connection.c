@@ -159,39 +159,18 @@ static gboolean _account_has_active_conversations(PurpleAccount *account)
     return FALSE;
 }
 
-
-static void _login_completed(MatrixConnectionData *conn,
-        gpointer user_data,
-        JsonNode *json_root,
-        const char *raw_body, size_t raw_body_len, const char *content_type)
+static void _start_sync(MatrixConnectionData *conn)
 {
     PurpleConnection *pc = conn->pc;
-    JsonObject *root_obj;
-    const gchar *access_token;
-    const gchar *next_batch;
-    const gchar *device_id;
     gboolean needs_full_state_sync = TRUE;
-
-    root_obj = matrix_json_node_get_object(json_root);
-    access_token = matrix_json_object_get_string_member(root_obj,
-            "access_token");
-    if(access_token == NULL) {
-        purple_connection_error_reason(pc,
-                PURPLE_CONNECTION_ERROR_OTHER_ERROR,
-                "No access_token in /login response");
-        return;
-    }
-    conn->access_token = g_strdup(access_token);
-    conn->user_id = g_strdup(matrix_json_object_get_string_member(root_obj,
-            "user_id"));
-    device_id = matrix_json_object_get_string_member(root_obj, "device_id");
-    purple_account_set_string(pc->account, "device_id", device_id);
-    purple_account_set_string(pc->account, PRPL_ACCOUNT_OPT_ACCESS_TOKEN,
-            access_token);
+    const gchar *next_batch;
+    const gchar *device_id = purple_account_get_string(pc->account,
+            "device_id", NULL);
 
     if (device_id) {
         matrix_e2e_get_device_keys(conn, device_id);
     }
+
     /* start the sync loop */
     next_batch = purple_account_get_string(pc->account,
             PRPL_ACCOUNT_OPT_NEXT_BATCH, NULL);
@@ -223,6 +202,36 @@ static void _login_completed(MatrixConnectionData *conn,
     }
 
     _start_next_sync(conn, next_batch, needs_full_state_sync);
+}
+
+static void _login_completed(MatrixConnectionData *conn,
+        gpointer user_data,
+        JsonNode *json_root,
+        const char *raw_body, size_t raw_body_len, const char *content_type)
+{
+    PurpleConnection *pc = conn->pc;
+    JsonObject *root_obj;
+    const gchar *access_token;
+    const gchar *device_id;
+
+    root_obj = matrix_json_node_get_object(json_root);
+    access_token = matrix_json_object_get_string_member(root_obj,
+            "access_token");
+    if(access_token == NULL) {
+        purple_connection_error_reason(pc,
+                PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                "No access_token in /login response");
+        return;
+    }
+    conn->access_token = g_strdup(access_token);
+    conn->user_id = g_strdup(matrix_json_object_get_string_member(root_obj,
+            "user_id"));
+    device_id = matrix_json_object_get_string_member(root_obj, "device_id");
+    purple_account_set_string(pc->account, "device_id", device_id);
+    purple_account_set_string(pc->account, PRPL_ACCOUNT_OPT_ACCESS_TOKEN,
+            access_token);
+
+    _start_sync(conn);
 }
 
 
