@@ -26,6 +26,8 @@
 
 /* libpurple */
 #include <debug.h>
+#include <libpurple/request.h>
+#include <libpurple/core.h>
 
 /* libmatrix */
 #include "libmatrix.h"
@@ -234,6 +236,78 @@ static void _login_completed(MatrixConnectionData *conn,
     _start_sync(conn);
 }
 
+/*
+ * Callback from _password_login when the user enters a password.
+ */
+static void
+_password_received(PurpleConnection *gc, PurpleRequestFields *fields)
+{
+    PurpleAccount *acct;
+    const char *entry;
+    MatrixConnectionData *conn;
+    gboolean remember;
+
+    /* The password prompt dialog doesn't get disposed if the account disconnects */
+    if (!PURPLE_CONNECTION_IS_VALID(gc))
+      return;
+
+    acct = purple_connection_get_account(gc);
+    conn = purple_connection_get_protocol_data(gc);
+
+    entry = purple_request_fields_get_string(fields, "password");
+    remember = purple_request_fields_get_bool(fields, "remember");
+
+    if (!entry || !*entry)
+    {
+        purple_notify_error(acct, NULL, _("Password is required to sign on."), NULL);
+        return;
+    }
+
+    if (remember)
+        purple_account_set_remember_password(acct, TRUE);
+
+    purple_account_set_password(acct, entry);
+
+    matrix_api_password_login(conn, acct->username,
+            entry,
+            purple_account_get_string(acct, "device_id", NULL),
+            _login_completed, conn);
+}
+
+
+static void
+_password_cancel(PurpleConnection *gc, PurpleRequestFields *fields)
+{
+    PurpleAccount *account;
+
+    /* The password prompt dialog doesn't get disposed if the account disconnects */
+    if (!PURPLE_CONNECTION_IS_VALID(gc))
+        return;
+
+    account = purple_connection_get_account(gc);
+
+    /* Disable the account as the user has cancelled connecting */
+    purple_account_set_enabled(account, purple_core_get_ui(), FALSE);
+}
+
+/*
+ * Start a passworded login.
+ */
+static void _password_login(MatrixConnectionData *conn, PurpleAccount *acct)
+{
+    const char *password = purple_account_get_password(acct);
+
+    if (password) {
+        matrix_api_password_login(conn, acct->username,
+                password,
+                purple_account_get_string(acct, "device_id", NULL),
+                _login_completed, conn);
+    } else {
+        purple_account_request_password(acct,G_CALLBACK( _password_received),
+                G_CALLBACK(_password_cancel), conn->pc);
+    }
+}
+
 
 void matrix_connection_start_login(PurpleConnection *pc)
 {
@@ -251,10 +325,7 @@ void matrix_connection_start_login(PurpleConnection *pc)
     purple_connection_set_state(pc, PURPLE_CONNECTING);
     purple_connection_update_progress(pc, _("Logging in"), 0, 3);
 
-    matrix_api_password_login(conn, acct->username,
-            purple_account_get_password(acct),
-            purple_account_get_string(acct, "device_id", NULL),
-            _login_completed, conn);
+    _password_login(conn, acct);
 }
 
 
