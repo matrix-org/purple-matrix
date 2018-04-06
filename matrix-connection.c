@@ -309,12 +309,58 @@ static void _password_login(MatrixConnectionData *conn, PurpleAccount *acct)
 }
 
 
+/*
+ * If we get an error during whoami just fall back to password
+ * login.
+ */
+static void _whoami_error(MatrixConnectionData *conn,
+        gpointer user_data, const gchar *error_message)
+{
+    PurpleAccount *acct = user_data;
+    purple_debug_info("matrixprpl", "_whoami_error: %s\n", error_message);
+    _password_login(conn, acct);
+}
+
+/*
+ * If we get a bad response just fall back to password login
+ */
+static void _whoami_badresp(MatrixConnectionData *conn, gpointer user_data,
+        int http_response_code, struct _JsonNode *json_root)
+{
+    purple_debug_info("matrixprpl", "_whoami_badresp\n");
+    _whoami_error(conn, user_data, "Bad response");
+}
+
+/*
+ * A response from the whoami we issued to validate our access token
+ * If it's succesful then we can start the connection.
+ */
+static void _whoami_completed(MatrixConnectionData *conn,
+        gpointer user_data,
+        JsonNode *json_root,
+        const char *raw_body, size_t raw_body_len, const char *content_type)
+{
+    JsonObject *root_obj = matrix_json_node_get_object(json_root);
+    const gchar *user_id = matrix_json_object_get_string_member(root_obj,
+            "user_id");
+
+    purple_debug_info("matrixprpl", "_whoami_completed got %s\n", user_id);
+    if (!user_id) {
+        return _whoami_error(conn, user_data, "no user_id");
+    }
+    // TODO: That is out user_id - right?
+    conn->user_id = g_strdup(user_id);
+    _start_sync(conn);
+}
+
 void matrix_connection_start_login(PurpleConnection *pc)
 {
     PurpleAccount *acct = pc->account;
     MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
     const gchar *homeserver = purple_account_get_string(pc->account,
             PRPL_ACCOUNT_OPT_HOME_SERVER, DEFAULT_HOME_SERVER);
+    const gchar *access_token = purple_account_get_string(pc->account,
+            PRPL_ACCOUNT_OPT_ACCESS_TOKEN, NULL);
 
     if(!g_str_has_suffix(homeserver, "/")) {
         conn->homeserver = g_strconcat(homeserver, "/", NULL);
@@ -325,7 +371,13 @@ void matrix_connection_start_login(PurpleConnection *pc)
     purple_connection_set_state(pc, PURPLE_CONNECTING);
     purple_connection_update_progress(pc, _("Logging in"), 0, 3);
 
-    _password_login(conn, acct);
+    if (access_token) {
+        conn->access_token = g_strdup(access_token);
+        matrix_api_whoami(conn, _whoami_completed, _whoami_error,
+                _whoami_badresp, conn);
+    } else {
+        _password_login(conn, acct);
+    }
 }
 
 

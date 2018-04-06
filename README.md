@@ -86,6 +86,9 @@ You will then need to restart Pidgin, after which you should be able to add a
   from the 'Protocol' dropdown.
 * Enter your matrix ID on the homeserver (e.g. '@bob:matrix.org' or 'bob') as
   the 'username', and the password in the 'password' field.
+  * If you don't enter your password, you'll be prompted for it when you try
+    to connect;  this won't get saved unless you click 'save password' but an
+    access token is stored instead.
 * On the 'Advanced' tab, enter the URL of your homeserver.
 
 
