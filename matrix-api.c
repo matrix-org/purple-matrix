@@ -1074,7 +1074,7 @@ MatrixApiRequestData *matrix_api_upload_keys(MatrixConnectionData *conn,
     fetch_data = matrix_api_start_full(url->str, "POST",
             "Content-Type: application/json", json, NULL, 0,
             conn, callback, error_callback, bad_response_callback,
-            user_data, 1024);
+            user_data, 10*1024);
     g_free(json);
     g_string_free(url, TRUE);
 
