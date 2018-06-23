@@ -13,7 +13,6 @@ joining rooms you are invited to by other users.
 
 The following are not yet supported:
  * Creating new rooms (and one-to-one chats)
- * Joining existing rooms by alias instead of room_id
  * Presence indication
  * Typing indication
  * Videos/rich text in messages
