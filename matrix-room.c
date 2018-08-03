@@ -31,10 +31,13 @@
 
 #include "libmatrix.h"
 #include "matrix-api.h"
+#include "matrix-e2e.h"
 #include "matrix-event.h"
 #include "matrix-json.h"
 #include "matrix-roommembers.h"
 #include "matrix-statetable.h"
+
+#include <gcrypt.h>
 
 
 static gchar *_get_room_name(MatrixConnectionData *conn,
@@ -290,6 +293,9 @@ static void _on_state_update(const gchar *event_type,
             strcmp(event_type, "m.room.canonical_alias") == 0 ||
             strcmp(event_type, "m.room.name") == 0) {
         _schedule_name_update(conv);
+    } else if (strcmp(event_type, "m.room.encryption") == 0) {
+        purple_debug_info("matrixprpl",
+                          "Got m.room.encryption on_state_update\n");
     }
     else if(strcmp(event_type, "m.typing") == 0) {
         _on_typing(conv, old_state, new_state);
@@ -621,22 +627,49 @@ static void _send_image_hook(MatrixRoomEvent *event, gboolean just_free)
     }
 }
 
-/* Passed through matrix_api_download_file all the way
- * downto _image_download_complete
- */
 struct ReceiveImageData {
     PurpleConversation *conv;
     gint64 timestamp;
     const gchar *room_id;
     const gchar *sender_display_name;
     gchar *original_body;
+    MatrixMediaCryptInfo *crypt;
 };
+
+/* Deal with encrypted image data */
+static void _image_download_complete_crypt(struct ReceiveImageData *rid,
+        const char *raw_body, size_t raw_body_len)
+{
+    void *decrypted = NULL;
+
+    const char *fail_str = matrix_e2e_decrypt_media(rid->crypt,
+                                     raw_body_len, raw_body, &decrypted);
+
+    if (fail_str) {
+        serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
+                rid->sender_display_name, PURPLE_MESSAGE_RECV,
+                g_strdup_printf("%s (%s)",
+                        rid->original_body, fail_str), rid->timestamp / 1000);
+    } else {
+        int img_id = purple_imgstore_add_with_id(decrypted, raw_body_len, NULL);
+        serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id), rid->sender_display_name,
+                PURPLE_MESSAGE_RECV | PURPLE_MESSAGE_IMAGES,
+                g_strdup_printf("<IMG ID=\"%d\">", img_id), rid->timestamp / 1000);
+    }
+
+    g_free(rid->crypt);
+    g_free(rid->original_body);
+    g_free(rid);
+}
 
 static void _image_download_complete(MatrixConnectionData *ma,
           gpointer user_data, JsonNode *json_root,
           const char *raw_body, size_t raw_body_len, const char *content_type)
 {
     struct ReceiveImageData *rid = user_data;
+    if (rid->crypt) {
+        return _image_download_complete_crypt(rid, raw_body, raw_body_len);
+    }
     if (is_known_image_type(content_type)) {
         /* Excellent - something to work with */
         int img_id = purple_imgstore_add_with_id(g_memdup(raw_body, raw_body_len),
@@ -669,6 +702,7 @@ static void _image_download_bad_response(MatrixConnectionData *ma, gpointer user
     purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
             NULL);
     g_free(escaped_body);
+    g_free(rid->crypt);
     g_free(rid->original_body);
     g_free(rid);
 }
@@ -685,10 +719,10 @@ static void _image_download_error(MatrixConnectionData *ma, gpointer user_data,
     purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
             NULL);
     g_free(escaped_body);
+    g_free(rid->crypt);
     g_free(rid->original_body);
     g_free(rid);
 }
-
 
 /*
  * Called from matrix_room_handle_timeline_event when it finds an m.video
@@ -701,24 +735,31 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
         JsonObject *json_content_object, const gchar *msg_type) {
     MatrixConnectionData *conn = _get_connection_data_from_conversation(conv);
     MatrixApiRequestData *fetch_data = NULL;
+    int is_image = !strcmp("m.image", msg_type);
 
     const gchar *url;
     GString *download_url;
     guint64 size = 0;
     const gchar *mime_type = "unknown";
+    JsonObject *json_file_obj = NULL;
     JsonObject *json_info_object;
 
     url = matrix_json_object_get_string_member(json_content_object, "url");
     if (!url) {
-        /* That seems odd, oh well, no point in getting upset */
-        purple_debug_info("matrixprpl", "failed to get url for media\n");
-        return FALSE;
+        /* Could be a new style format used by the e2e world */
+        json_file_obj = matrix_json_object_get_object_member(
+                json_content_object, "file");
+        if (json_file_obj) {
+            url = matrix_json_object_get_string_member(json_file_obj,
+                    "url");
+        }
+        if (!url) {
+            /* That seems odd, oh well, no point in getting upset */
+            purple_debug_info("matrixprpl", "failed to get url for media\n");
+            return FALSE;
+        }
     }
     download_url = get_download_url(conn->homeserver, url);
-    if (!download_url) {
-        purple_debug_error("matrixprpl", "failed to get download_url for media\n");
-        return FALSE;
-    }
 
     /* the 'info' member is optional */
     json_info_object = matrix_json_object_get_object_member(json_content_object,
@@ -748,7 +789,6 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
      * download that. Otherwise, only for m.image, ask for a server generated
      * thumbnail.
      */
-    int is_image = !strcmp("m.image", msg_type);
     const gchar *thumb_url = "";
     JsonObject *json_thumb_info;
     guint64 thumb_size = 0;
@@ -773,6 +813,20 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
         /* if an m.image is small, get that instead of the thumbnail */
         thumb_url = url;
         thumb_size = size;
+    } else if (json_file_obj) {
+        /* In the world with file members, we've also got a thumbnail_file
+         * member with potentially quite different data.
+         */
+        JsonObject *tmp_file_obj =  matrix_json_object_get_object_member(
+                        json_info_object, "thumbnail_file");
+        if (tmp_file_obj) {
+            const char *tmp_url;
+            tmp_url = matrix_json_object_get_string_member(tmp_file_obj, "url");
+            if (tmp_url) {
+                thumb_url = tmp_url;
+                json_file_obj = tmp_file_obj;
+            }
+        }
     }
     if (thumb_url || is_image) {
         struct ReceiveImageData *rid;
@@ -783,6 +837,17 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
         rid->room_id = room_id;
         rid->original_body = g_strdup(msg_body);
 
+        if (json_file_obj) {
+            /* It's almost certainly encrypted data, extract the info.
+             * Note if it is then we must fetch the raw, we can't ask for the server
+             * to generate a thumb.
+             */
+            if (!matrix_e2e_parse_media_decrypt_info(&rid->crypt, json_file_obj)) {
+                g_free(rid);
+                return FALSE;
+            }
+        }
+
         if (thumb_url && (thumb_size > 0) && (thumb_size < purple_max_media_size)) {
             fetch_data = matrix_api_download_file(conn, thumb_url,
                     purple_max_media_size,
@@ -790,7 +855,7 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
                     _image_download_error,
                     _image_download_bad_response,
                     rid);
-        } else if (thumb_url) {
+        } else if (thumb_url && !rid->crypt) {
             /* Ask the server to generate a thumbnail of the thumbnail.
              * Useful to improve the chance of showing something when the
              * original thumbnail is too big.
@@ -802,7 +867,7 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
                     _image_download_error,
                     _image_download_bad_response,
                     rid);
-        } else {
+        } else if (!rid->crypt) {
             /* Ask the server to generate a thumbnail. Only for m.image.
              * TODO: Configure the size of thumbnails.
              * 640x480 is a good a width as any and reasonably likely to
@@ -819,6 +884,9 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
         }
         purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND,
                 fetch_data);
+        if (!fetch_data) {
+            g_free(rid->crypt);
+        }
         return fetch_data != NULL;
     }
     return TRUE;
@@ -928,6 +996,7 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     gchar *tmp_body = NULL;
     gchar *escaped_body = NULL;
     PurpleMessageFlags flags;
+    JsonParser *decrypted_parser = NULL;
 
     const gchar *sender_display_name;
     MatrixRoomMember *sender = NULL;
@@ -945,6 +1014,31 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     if(event_type == NULL) {
         purple_debug_warning("matrixprpl", "event missing type field");
         return;
+    }
+
+    if(!strcmp(event_type, "m.room.encrypted")) {
+        purple_debug_info("matrixprpl", "Got an m.room.encrypted!\n");
+        decrypted_parser = matrix_e2e_decrypt_room(conv, json_event_obj);
+        if (!decrypted_parser) {
+            purple_debug_warning("matrixprpl",
+                                 "Failed to decrypt m.room.encrypted");
+            return;
+        }
+        JsonNode *decrypted_node = json_parser_get_root(decrypted_parser);
+        JsonObject *decrypted_body;
+        decrypted_body = matrix_json_node_get_object(decrypted_node);
+        event_type = matrix_json_object_get_string_member(decrypted_body,
+                                                               "type");
+        json_content_obj = matrix_json_object_get_object_member(decrypted_body,
+                                                               "content");
+        // TODO: Check room_id matches
+        // TODO: Add some info about device trust etc
+        if (!event_type || !json_content_obj) {
+            purple_debug_warning("matrixprpl",
+                                 "Failed to find members of decrypted json");
+            g_object_unref(decrypted_parser);
+            return;
+        }
     }
 
     if(strcmp(event_type, "m.room.message") != 0) {
@@ -1013,6 +1107,9 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     serv_got_chat_in(conv->account->gc, g_str_hash(room_id),
             sender_display_name, flags, escaped_body, timestamp / 1000);
     g_free(escaped_body);
+    if (decrypted_parser) {
+        g_object_unref(decrypted_parser);
+    }
 }
 
 
@@ -1081,6 +1178,7 @@ void matrix_room_leave_chat(PurpleConversation *conv)
         g_list_free_full(event_queue, (GDestroyNotify)matrix_event_free);
         purple_conversation_set_data(conv, PURPLE_CONV_DATA_EVENT_QUEUE, NULL);
     }
+    matrix_e2e_cleanup_conversation(conv);
 }
 
 

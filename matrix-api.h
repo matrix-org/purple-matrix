@@ -362,6 +362,30 @@ MatrixApiRequestData *matrix_api_download_thumb(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+/**
+ * e2e: Upload keys; one or more of the device keys and the one time keys
+ * @param conn             The connection with which to make the request
+ * @param device_keys      (optional) Json Object with the signed device keys
+ *                         device_keys gets unreferenced
+ * @param one_time_keys    (optional) Json Object with one time key set
+ *                         one_time_keys gets unreferenced
+ * @param callback         Function to be called when the request completes
+ * @param error_callback   Function to be called if there is an error making
+ *                             the request. If NULL, matrix_api_error will be
+ *                             used.
+ * @param bad_response_callback Function to be called if the API gives a non-200
+ *                            response. If NULL, matrix_api_bad_response will be
+ *                            used.
+ * @param user_data        Opaque data to be passed to the callbacks
+ *
+ */
+MatrixApiRequestData *matrix_api_upload_keys(MatrixConnectionData *conn,
+        struct _JsonObject *device_keys, struct _JsonObject *one_time_keys,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
 #if 0
 /**
  * Get the current state of a room

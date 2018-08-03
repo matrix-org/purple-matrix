@@ -1007,6 +1007,52 @@ MatrixApiRequestData *matrix_api_download_thumb(MatrixConnectionData *conn,
     return fetch_data;
 }
 
+MatrixApiRequestData *matrix_api_upload_keys(MatrixConnectionData *conn,
+        JsonObject *device_keys, JsonObject *one_time_keys,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+    JsonNode *body_node;
+    JsonObject *top_obj;
+    JsonGenerator *generator;
+    gchar *json;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "_matrix/client/r0/keys/upload?access_token=");
+    g_string_append(url, purple_url_encode(conn->access_token));
+
+    top_obj = json_object_new();
+    if (device_keys) {
+        json_object_set_object_member(top_obj, "device_keys", device_keys);
+    }
+    if (one_time_keys) {
+        json_object_set_object_member(top_obj, "one_time_keys", one_time_keys);
+    }
+    body_node = json_node_new(JSON_NODE_OBJECT);
+    json_node_set_object(body_node, top_obj);
+    json_object_unref(top_obj);
+
+    generator = json_generator_new();
+    json_generator_set_root(generator, body_node);
+    json = json_generator_to_data(generator, NULL);
+    g_object_unref(G_OBJECT(generator));
+    json_node_free(body_node);
+
+    fetch_data = matrix_api_start_full(url->str, "POST",
+            "Content-Type: application/json", json, NULL, 0,
+            conn, callback, error_callback, bad_response_callback,
+            user_data, 1024);
+    g_free(json);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
+}
+
+
 #if 0
 MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
         const gchar *room_id,
