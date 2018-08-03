@@ -1008,7 +1008,7 @@ MatrixApiRequestData *matrix_api_upload_keys(MatrixConnectionData *conn,
     gchar *json;
 
     url = g_string_new(conn->homeserver);
-    g_string_append(url, "_matrix/client/unstable/keys/upload?access_token=");
+    g_string_append(url, "_matrix/client/r0/keys/upload?access_token=");
     g_string_append(url, purple_url_encode(conn->access_token));
 
     top_obj = json_object_new();
