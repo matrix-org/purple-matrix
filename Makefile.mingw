@@ -14,8 +14,9 @@ LDLIBS += -L$(HTTP_PARSER_TOP) -lhttp_parser -static-libgcc
 
 ifndef MATRIX_NO_E2E
 OLM_TOP ?= $(WIN32_DEV_TOP)/olm
-CFLAGS +=  -I$(OLM_TOP)/include
-LDLIBS+= -L$(OLM_TOP)/build -lolm
+GCRYPT_TOP ?= $(WIN32_DEV_TOP)/libgcrypt
+CFLAGS += -I$(OLM_TOP)/include -I$(GCRYPT_TOP)/src
+LDLIBS += -L$(OLM_TOP)/build -lolm -L$(GCRYPT_TOP)/bin -lgcrypt
 endif
 
 
