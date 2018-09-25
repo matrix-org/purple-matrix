@@ -37,8 +37,6 @@
 #include "matrix-roommembers.h"
 #include "matrix-statetable.h"
 
-#include <gcrypt.h>
-
 
 static gchar *_get_room_name(MatrixConnectionData *conn,
         PurpleConversation *conv);
