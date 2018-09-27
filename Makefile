@@ -10,7 +10,7 @@ LDLIBS+=$(shell $(PKG_CONFIG) --libs $(LIBS))
 LDLIBS+=-lhttp_parser
 
 ifndef MATRIX_NO_E2E
-LDLIBS+=-lolm
+LDLIBS+=-lolm -lgcrypt
 endif
 
 PLUGIN_DIR_PURPLE	=  $(shell $(PKG_CONFIG) --variable=plugindir purple)
