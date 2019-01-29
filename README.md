@@ -1,4 +1,4 @@
-# purple-matrix
+# purple-matrix [![#purple on matrix.org](https://img.shields.io/matrix/purple:matrix.org.svg?label=%23purple%3Amatrix.org&logo=matrix&server_fqdn=matrix.org)](https://matrix.to/#/#purple:matrix.org)
 
 This project is a plugin for
 [libpurple](https://developer.pidgin.im/wiki/WhatIsLibpurple) which adds the
