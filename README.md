@@ -46,6 +46,8 @@ You will need development headers/libraries for the following:
 * libjson-glib  [libjson-glib-dev]
 * libglib [libglib-dev (or libglib2.0-dev on Ubuntu 16.04 xenial)]
 * libhttp_parser [libhttp-parser-dev].
+* sqlite3 [libsqlite3-dev]
+* libolm [libolm-dev] (if not available, compile with `make MATRIX_NO_E2E=1`)
 
 You should then be able to:
 
@@ -53,6 +55,9 @@ You should then be able to:
 make
 sudo make install
 ```
+
+If you do not have root access, you can simply copy `libmatrix.so` into
+`~/.purple/plugins`.
 
 You will then need to restart Pidgin, after which you should be able to add a
 'Matrix' account.
