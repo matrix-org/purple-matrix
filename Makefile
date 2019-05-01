@@ -4,9 +4,21 @@ CC=gcc
 LIBS=purple json-glib-1.0 glib-2.0 sqlite3
 
 PKG_CONFIG=pkg-config
-CFLAGS+=$(shell $(PKG_CONFIG) --cflags $(LIBS))
+
+PKG_CFLAGS=$(shell $(PKG_CONFIG) --cflags $(LIBS) || echo "FAILED")
+ifeq ($(PKG_CFLAGS),FAILED)
+$(error "$(PKG_CONFIG) failed")
+else
+CFLAGS+=$(PKG_CFLAGS)
+endif
 CFLAGS+=-fPIC -DPIC
-LDLIBS+=$(shell $(PKG_CONFIG) --libs $(LIBS))
+
+PKG_LDLIBS=$(shell $(PKG_CONFIG) --libs $(LIBS) || echo "FAILED")
+ifeq ($(PKG_LDLIBS),FAILED)
+$(error "$(PKG_CONFIG) failed")
+else
+LDLIBS+=$(PKG_LDLIBS)
+endif
 LDLIBS+=-lhttp_parser
 
 ifndef MATRIX_NO_E2E
