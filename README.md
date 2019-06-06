@@ -8,7 +8,7 @@ libpurple-based clients (such as [Pidgin](http://www.pidgin.im)).
 # Status
 
 This project is somewhat alpha, and only basic functionality has been
-implemented. Sending and receiving simple text messages is supported, as is 
+implemented. Sending and receiving simple text messages is supported, as is
 joining rooms you are invited to by other users.
 
 The following are not yet supported:
@@ -19,7 +19,7 @@ The following are not yet supported:
  * Account registration
  * Room topics
  * Voice/video calling
- 
+
 The following are in progress:
  * End-To-End encryption via Olm ([ticket](https://github.com/matrix-org/purple-matrix/issues/18))
    * [Decyption is supported but not encryption](https://github.com/matrix-org/purple-matrix/issues/18#issuecomment-410336278)
@@ -48,6 +48,7 @@ You will need development headers/libraries for the following:
 * libhttp_parser [libhttp-parser-dev].
 * sqlite3 [libsqlite3-dev]
 * libolm [libolm-dev] (if not available, compile with `make MATRIX_NO_E2E=1`)
+* libgcrypt20-dev
 
 You should then be able to:
 
@@ -79,7 +80,7 @@ You will then need to restart Pidgin, after which you should be able to add a
 
 # Usage
 
-* Open the 'Manage accounts' dialog (under the 'Accounts' menu) and click 
+* Open the 'Manage accounts' dialog (under the 'Accounts' menu) and click
   'Add'.
 * If the plugin was loaded successfully, you will be able to select 'Matrix'
   from the 'Protocol' dropdown.
