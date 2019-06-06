@@ -48,7 +48,7 @@ You will need development headers/libraries for the following:
 * libhttp_parser [libhttp-parser-dev].
 * sqlite3 [libsqlite3-dev]
 * libolm [libolm-dev] (if not available, compile with `make MATRIX_NO_E2E=1`)
-* libgcrypt20 [libgcrypt20-dev] (if not available, compile with `make MATRIX_NO_E2E=1`)
+* libgcrypt [libgcrypt20-dev] (if not available, compile with `make MATRIX_NO_E2E=1`)
 
 You should then be able to:
 
