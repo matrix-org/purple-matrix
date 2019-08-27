@@ -601,14 +601,20 @@ void matrix_api_cancel(MatrixApiRequestData *data)
 
 gchar *_build_login_body(const gchar *username, const gchar *password, const gchar *device_id)
 {
-    JsonObject *body;
+    JsonObject *body, *ident;
     JsonNode *node;
     JsonGenerator *generator;
     gchar *result;
 
     body = json_object_new();
     json_object_set_string_member(body, "type", "m.login.password");
-    json_object_set_string_member(body, "user", username);
+
+    ident = json_object_new();
+    /* TODO: Support 3pid rather than username */
+    json_object_set_string_member(ident, "type", "m.id.user");
+    json_object_set_string_member(ident, "user", username);
+    json_object_set_object_member(body, "identifier", ident);
+
     json_object_set_string_member(body, "password", password);
     json_object_set_string_member(body, "initial_device_display_name", "purple-matrix");
     if (device_id != NULL)
@@ -638,9 +644,7 @@ MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
 
     purple_debug_info("matrixprpl", "logging in %s\n", username);
 
-    // As per https://github.com/matrix-org/synapse/pull/459, synapse
-    // didn't expose login at 'r0'.
-    url = g_strconcat(conn->homeserver, "_matrix/client/api/v1/login",
+    url = g_strconcat(conn->homeserver, "_matrix/client/r0/login",
             NULL);
 
     json = _build_login_body(username, password, device_id);
