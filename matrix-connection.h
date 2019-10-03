@@ -26,6 +26,7 @@
 #ifndef MATRIX_CONNECTION_H
 #define MATRIX_CONNECTION_H
 
+#include <time.h>
 #include <glib.h>
 
 struct _PurpleConnection;
@@ -36,6 +37,8 @@ typedef struct _MatrixConnectionData {
     gchar *homeserver;      /* URL of the homeserver. Always ends in '/' */
     gchar *user_id;         /* our full user id ("@user:server") */
     gchar *access_token;    /* access token corresponding to our user */
+
+    struct timespec last_sync;
 
     /* the active sync request */
     struct _MatrixApiRequestData *active_sync;
