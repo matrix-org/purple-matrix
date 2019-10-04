@@ -49,6 +49,7 @@ void matrix_connection_new(PurpleConnection *pc)
      g_assert(purple_connection_get_protocol_data(pc) == NULL);
      conn = g_new0(MatrixConnectionData, 1);
      conn->pc = pc;
+     conn->syncRun = FALSE;
      purple_connection_set_protocol_data(pc, conn);
 }
 
@@ -58,6 +59,8 @@ void matrix_connection_free(PurpleConnection *pc)
     MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
 
     g_assert(conn != NULL);
+
+    conn->syncRun = FALSE;
 
     matrix_e2e_cleanup_connection(conn);
     purple_connection_set_protocol_data(pc, NULL);
@@ -118,6 +121,7 @@ static void _sync_complete(MatrixConnectionData *ma, gpointer user_data,
     const gchar *next_batch;
 
     ma->active_sync = NULL;
+    ma->syncRun = TRUE;
     clock_gettime(CLOCK_MONOTONIC_RAW, &ma->last_sync);
 
     if(body == NULL) {
@@ -180,15 +184,19 @@ static gboolean checkSyncRunning(gpointer user_data)
     long startMillis, endMillis;
     long elapsedMillis = 0;
 
-    start = ma->last_sync;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+    if(ma == NULL || ma->syncRun == FALSE){
+      restart = FALSE;
+    }else{
+      start = ma->last_sync;
+      clock_gettime(CLOCK_MONOTONIC_RAW, &end);
 
-    startMillis = (start.tv_sec*1000) + (start.tv_nsec / 1.0e6);
-    endMillis = (end.tv_sec*1000) + (end.tv_nsec / 1.0e6);
-    elapsedMillis = endMillis - startMillis;
+      startMillis = (start.tv_sec*1000) + (start.tv_nsec / 1.0e6);
+      endMillis = (end.tv_sec*1000) + (end.tv_nsec / 1.0e6);
+      elapsedMillis = endMillis - startMillis;
 
-    if(elapsedMillis > 60000){
-      restart = TRUE;
+      if(elapsedMillis > 60000){
+        restart = TRUE;
+      }
     }
 
     if(restart){
@@ -242,7 +250,10 @@ static void _start_sync(MatrixConnectionData *conn)
         purple_connection_set_state(pc, PURPLE_CONNECTED);
     }
 
+    conn->syncRun = FALSE;
+
     purple_timeout_add(5000, checkSyncRunning, conn);
+
     _start_next_sync(conn, next_batch, needs_full_state_sync);
 }
 

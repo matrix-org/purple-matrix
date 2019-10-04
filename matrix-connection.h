@@ -39,6 +39,7 @@ typedef struct _MatrixConnectionData {
     gchar *access_token;    /* access token corresponding to our user */
 
     struct timespec last_sync;
+    gboolean syncRun;
 
     /* the active sync request */
     struct _MatrixApiRequestData *active_sync;
