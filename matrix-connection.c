@@ -200,6 +200,7 @@ static gboolean checkSyncRunning(gpointer user_data)
     }
 
     if(restart){
+      clock_gettime(CLOCK_MONOTONIC_RAW, &ma->last_sync);
       matrix_connection_cancel_sync(ma->pc);
       next_batch = purple_account_get_string(ma->pc->account,
             PRPL_ACCOUNT_OPT_NEXT_BATCH, NULL);
