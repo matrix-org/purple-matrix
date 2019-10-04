@@ -45,6 +45,8 @@ typedef struct _MatrixConnectionData {
     struct _MatrixApiRequestData *active_sync;
     /* All the end-2-end encryption magic */
     struct _MatrixE2EData *e2e;
+
+    guint check_sync_handle;
 } MatrixConnectionData;
 
 

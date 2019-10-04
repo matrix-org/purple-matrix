@@ -252,7 +252,8 @@ static void _start_sync(MatrixConnectionData *conn)
 
     conn->syncRun = FALSE;
 
-    purple_timeout_add(5000, checkSyncRunning, conn);
+    purple_timeout_remove(conn->check_sync_handle);
+    conn->check_sync_handle = purple_timeout_add(5000, checkSyncRunning, conn);
 
     _start_next_sync(conn, next_batch, needs_full_state_sync);
 }
