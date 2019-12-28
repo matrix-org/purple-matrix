@@ -363,6 +363,27 @@ MatrixApiRequestData *matrix_api_download_thumb(MatrixConnectionData *conn,
         gpointer user_data);
 
 /**
+ * Returns the userid for our access token, mostly as a check our token
+ * is valid.
+ *
+ * @param conn             The connection with which to make the request
+ * @param callback         Function to be called when the request completes
+ * @param error_callback   Function to be called if there is an error making
+ *                             the request. If NULL, matrix_api_error will be
+ *                             used.
+ * @param bad_response_callback Function to be called if the API gives a non-200
+ *                            response. If NULL, matrix_api_bad_response will be
+ *                            used.
+ * @param user_data        Opaque data to be passed to the callbacks
+ *
+ */
+MatrixApiRequestData *matrix_api_whoami(MatrixConnectionData *conn,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
+/**
  * e2e: Upload keys; one or more of the device keys and the one time keys
  * @param conn             The connection with which to make the request
  * @param device_keys      (optional) Json Object with the signed device keys

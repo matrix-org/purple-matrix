@@ -26,6 +26,8 @@
 
 /* libpurple */
 #include <debug.h>
+#include <libpurple/request.h>
+#include <libpurple/core.h>
 
 /* libmatrix */
 #include "libmatrix.h"
@@ -159,37 +161,18 @@ static gboolean _account_has_active_conversations(PurpleAccount *account)
     return FALSE;
 }
 
-
-static void _login_completed(MatrixConnectionData *conn,
-        gpointer user_data,
-        JsonNode *json_root,
-        const char *raw_body, size_t raw_body_len, const char *content_type)
+static void _start_sync(MatrixConnectionData *conn)
 {
     PurpleConnection *pc = conn->pc;
-    JsonObject *root_obj;
-    const gchar *access_token;
-    const gchar *next_batch;
-    const gchar *device_id;
     gboolean needs_full_state_sync = TRUE;
-
-    root_obj = matrix_json_node_get_object(json_root);
-    access_token = matrix_json_object_get_string_member(root_obj,
-            "access_token");
-    if(access_token == NULL) {
-        purple_connection_error_reason(pc,
-                PURPLE_CONNECTION_ERROR_OTHER_ERROR,
-                "No access_token in /login response");
-        return;
-    }
-    conn->access_token = g_strdup(access_token);
-    conn->user_id = g_strdup(matrix_json_object_get_string_member(root_obj,
-            "user_id"));
-    device_id = matrix_json_object_get_string_member(root_obj, "device_id");
-    purple_account_set_string(pc->account, "device_id", device_id);
+    const gchar *next_batch;
+    const gchar *device_id = purple_account_get_string(pc->account,
+            "device_id", NULL);
 
     if (device_id) {
         matrix_e2e_get_device_keys(conn, device_id);
     }
+
     /* start the sync loop */
     next_batch = purple_account_get_string(pc->account,
             PRPL_ACCOUNT_OPT_NEXT_BATCH, NULL);
@@ -223,6 +206,152 @@ static void _login_completed(MatrixConnectionData *conn,
     _start_next_sync(conn, next_batch, needs_full_state_sync);
 }
 
+static void _login_completed(MatrixConnectionData *conn,
+        gpointer user_data,
+        JsonNode *json_root,
+        const char *raw_body, size_t raw_body_len, const char *content_type)
+{
+    PurpleConnection *pc = conn->pc;
+    JsonObject *root_obj;
+    const gchar *access_token;
+    const gchar *device_id;
+
+    root_obj = matrix_json_node_get_object(json_root);
+    access_token = matrix_json_object_get_string_member(root_obj,
+            "access_token");
+    if(access_token == NULL) {
+        purple_connection_error_reason(pc,
+                PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+                "No access_token in /login response");
+        return;
+    }
+    conn->access_token = g_strdup(access_token);
+    conn->user_id = g_strdup(matrix_json_object_get_string_member(root_obj,
+            "user_id"));
+    device_id = matrix_json_object_get_string_member(root_obj, "device_id");
+    purple_account_set_string(pc->account, "device_id", device_id);
+    purple_account_set_string(pc->account, PRPL_ACCOUNT_OPT_ACCESS_TOKEN,
+            access_token);
+
+    _start_sync(conn);
+}
+
+/*
+ * Callback from _password_login when the user enters a password.
+ */
+static void
+_password_received(PurpleConnection *gc, PurpleRequestFields *fields)
+{
+    PurpleAccount *acct;
+    const char *entry;
+    MatrixConnectionData *conn;
+    gboolean remember;
+
+    /* The password prompt dialog doesn't get disposed if the account disconnects */
+    if (!PURPLE_CONNECTION_IS_VALID(gc))
+      return;
+
+    acct = purple_connection_get_account(gc);
+    conn = purple_connection_get_protocol_data(gc);
+
+    entry = purple_request_fields_get_string(fields, "password");
+    remember = purple_request_fields_get_bool(fields, "remember");
+
+    if (!entry || !*entry)
+    {
+        purple_notify_error(acct, NULL, _("Password is required to sign on."), NULL);
+        return;
+    }
+
+    if (remember)
+        purple_account_set_remember_password(acct, TRUE);
+
+    purple_account_set_password(acct, entry);
+
+    matrix_api_password_login(conn, acct->username,
+            entry,
+            purple_account_get_string(acct, "device_id", NULL),
+            _login_completed, conn);
+}
+
+
+static void
+_password_cancel(PurpleConnection *gc, PurpleRequestFields *fields)
+{
+    PurpleAccount *account;
+
+    /* The password prompt dialog doesn't get disposed if the account disconnects */
+    if (!PURPLE_CONNECTION_IS_VALID(gc))
+        return;
+
+    account = purple_connection_get_account(gc);
+
+    /* Disable the account as the user has cancelled connecting */
+    purple_account_set_enabled(account, purple_core_get_ui(), FALSE);
+}
+
+/*
+ * Start a passworded login.
+ */
+static void _password_login(MatrixConnectionData *conn, PurpleAccount *acct)
+{
+    const char *password = purple_account_get_password(acct);
+
+    if (password) {
+        matrix_api_password_login(conn, acct->username,
+                password,
+                purple_account_get_string(acct, "device_id", NULL),
+                _login_completed, conn);
+    } else {
+        purple_account_request_password(acct,G_CALLBACK( _password_received),
+                G_CALLBACK(_password_cancel), conn->pc);
+    }
+}
+
+
+/*
+ * If we get an error during whoami just fall back to password
+ * login.
+ */
+static void _whoami_error(MatrixConnectionData *conn,
+        gpointer user_data, const gchar *error_message)
+{
+    PurpleAccount *acct = user_data;
+    purple_debug_info("matrixprpl", "_whoami_error: %s\n", error_message);
+    _password_login(conn, acct);
+}
+
+/*
+ * If we get a bad response just fall back to password login
+ */
+static void _whoami_badresp(MatrixConnectionData *conn, gpointer user_data,
+        int http_response_code, struct _JsonNode *json_root)
+{
+    purple_debug_info("matrixprpl", "_whoami_badresp\n");
+    _whoami_error(conn, user_data, "Bad response");
+}
+
+/*
+ * A response from the whoami we issued to validate our access token
+ * If it's succesful then we can start the connection.
+ */
+static void _whoami_completed(MatrixConnectionData *conn,
+        gpointer user_data,
+        JsonNode *json_root,
+        const char *raw_body, size_t raw_body_len, const char *content_type)
+{
+    JsonObject *root_obj = matrix_json_node_get_object(json_root);
+    const gchar *user_id = matrix_json_object_get_string_member(root_obj,
+            "user_id");
+
+    purple_debug_info("matrixprpl", "_whoami_completed got %s\n", user_id);
+    if (!user_id) {
+        return _whoami_error(conn, user_data, "no user_id");
+    }
+    // TODO: That is out user_id - right?
+    conn->user_id = g_strdup(user_id);
+    _start_sync(conn);
+}
 
 void matrix_connection_start_login(PurpleConnection *pc)
 {
@@ -230,6 +359,8 @@ void matrix_connection_start_login(PurpleConnection *pc)
     MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
     const gchar *homeserver = purple_account_get_string(pc->account,
             PRPL_ACCOUNT_OPT_HOME_SERVER, DEFAULT_HOME_SERVER);
+    const gchar *access_token = purple_account_get_string(pc->account,
+            PRPL_ACCOUNT_OPT_ACCESS_TOKEN, NULL);
 
     if(!g_str_has_suffix(homeserver, "/")) {
         conn->homeserver = g_strconcat(homeserver, "/", NULL);
@@ -240,10 +371,13 @@ void matrix_connection_start_login(PurpleConnection *pc)
     purple_connection_set_state(pc, PURPLE_CONNECTING);
     purple_connection_update_progress(pc, _("Logging in"), 0, 3);
 
-    matrix_api_password_login(conn, acct->username,
-            purple_account_get_password(acct),
-            purple_account_get_string(acct, "device_id", NULL),
-            _login_completed, conn);
+    if (access_token) {
+        conn->access_token = g_strdup(access_token);
+        matrix_api_whoami(conn, _whoami_completed, _whoami_error,
+                _whoami_badresp, conn);
+    } else {
+        _password_login(conn, acct);
+    }
 }
 
 

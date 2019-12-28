@@ -601,14 +601,20 @@ void matrix_api_cancel(MatrixApiRequestData *data)
 
 gchar *_build_login_body(const gchar *username, const gchar *password, const gchar *device_id)
 {
-    JsonObject *body;
+    JsonObject *body, *ident;
     JsonNode *node;
     JsonGenerator *generator;
     gchar *result;
 
     body = json_object_new();
     json_object_set_string_member(body, "type", "m.login.password");
-    json_object_set_string_member(body, "user", username);
+
+    ident = json_object_new();
+    /* TODO: Support 3pid rather than username */
+    json_object_set_string_member(ident, "type", "m.id.user");
+    json_object_set_string_member(ident, "user", username);
+    json_object_set_object_member(body, "identifier", ident);
+
     json_object_set_string_member(body, "password", password);
     json_object_set_string_member(body, "initial_device_display_name", "purple-matrix");
     if (device_id != NULL)
@@ -638,9 +644,7 @@ MatrixApiRequestData *matrix_api_password_login(MatrixConnectionData *conn,
 
     purple_debug_info("matrixprpl", "logging in %s\n", username);
 
-    // As per https://github.com/matrix-org/synapse/pull/459, synapse
-    // didn't expose login at 'r0'.
-    url = g_strconcat(conn->homeserver, "_matrix/client/api/v1/login",
+    url = g_strconcat(conn->homeserver, "_matrix/client/r0/login",
             NULL);
 
     json = _build_login_body(username, password, device_id);
@@ -1007,6 +1011,31 @@ MatrixApiRequestData *matrix_api_download_thumb(MatrixConnectionData *conn,
     return fetch_data;
 }
 
+/**
+ * Returns the userid for our access token, mostly as a check our token
+ * is valid.
+ */
+MatrixApiRequestData *matrix_api_whoami(MatrixConnectionData *conn,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append_printf(url,
+            "_matrix/client/r0/account/whoami?access_token=%s",
+            purple_url_encode(conn->access_token));
+
+    fetch_data = matrix_api_start(url->str, "GET", NULL, conn, callback,
+            error_callback, bad_response_callback, user_data, 10*1024);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
+}
+
 MatrixApiRequestData *matrix_api_upload_keys(MatrixConnectionData *conn,
         JsonObject *device_keys, JsonObject *one_time_keys,
         MatrixApiCallback callback,
@@ -1045,7 +1074,7 @@ MatrixApiRequestData *matrix_api_upload_keys(MatrixConnectionData *conn,
     fetch_data = matrix_api_start_full(url->str, "POST",
             "Content-Type: application/json", json, NULL, 0,
             conn, callback, error_callback, bad_response_callback,
-            user_data, 1024);
+            user_data, 10*1024);
     g_free(json);
     g_string_free(url, TRUE);
 

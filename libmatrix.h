@@ -117,6 +117,8 @@
 #define PRPL_ACCOUNT_OPT_SKIP_OLD_MESSAGES "skip_old_messages"
 /* Pickled account info from olm_pickle_account */
 #define PRPL_ACCOUNT_OPT_OLM_ACCOUNT_KEYS "olm_account_keys"
+/* Access token, after a login */
+#define PRPL_ACCOUNT_OPT_ACCESS_TOKEN "access_token"
 
 /* defaults for account options */
 #define DEFAULT_HOME_SERVER "https://matrix.org"
