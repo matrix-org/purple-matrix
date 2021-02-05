@@ -81,8 +81,14 @@ void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
                 _("Error from home server"), http_response_code);
     }
 
+    PurpleConnectionError error_reason = PURPLE_CONNECTION_ERROR_OTHER_ERROR;
+
+    if (http_response_code == 429 || http_response_code > 500) {
+        error_reason = PURPLE_CONNECTION_ERROR_NETWORK_ERROR;
+    }
+
     purple_connection_error_reason(ma->pc,
-            PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+            error_reason,
             error_message);
 
     g_free(error_message);
