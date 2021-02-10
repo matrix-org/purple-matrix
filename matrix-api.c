@@ -66,6 +66,7 @@ void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
     JsonObject *json_obj;
     const gchar *errcode = NULL, *error = NULL;
     gchar *error_message;
+    PurpleConnectionError error_reason = PURPLE_CONNECTION_ERROR_OTHER_ERROR;
 
     if(json_root != NULL) {
         json_obj = matrix_json_node_get_object(json_root);
@@ -81,8 +82,13 @@ void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
                 _("Error from home server"), http_response_code);
     }
 
+    /* Use a non-fatal error reason on HTTP 429 and 500 to allow auto-reconnection */
+    if (http_response_code == 429 || http_response_code > 500) {
+        error_reason = PURPLE_CONNECTION_ERROR_NETWORK_ERROR;
+    }
+
     purple_connection_error_reason(ma->pc,
-            PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+            error_reason,
             error_message);
 
     g_free(error_message);
