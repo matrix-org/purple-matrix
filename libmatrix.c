@@ -372,6 +372,10 @@ static void matrixprpl_init(PurplePlugin *plugin)
                     _("On reconnect, skip messages which were received in a "
                       "previous session"),
                     PRPL_ACCOUNT_OPT_SKIP_OLD_MESSAGES, FALSE));
+    protocol_options = g_list_append(protocol_options,
+            purple_account_option_bool_new(
+                    _("Prefer Markdown over HTML"),
+                    PRPL_ACCOUNT_OPT_PREFER_MARKDOWN, FALSE));
 
     prpl_info.protocol_options = protocol_options;
 }
