@@ -115,6 +115,7 @@
 #define PRPL_ACCOUNT_OPT_HOME_SERVER "home_server"
 #define PRPL_ACCOUNT_OPT_NEXT_BATCH "next_batch"
 #define PRPL_ACCOUNT_OPT_SKIP_OLD_MESSAGES "skip_old_messages"
+#define PRPL_ACCOUNT_OPT_PREFER_MARKDOWN "prefer_markdown"
 /* Pickled account info from olm_pickle_account */
 #define PRPL_ACCOUNT_OPT_OLM_ACCOUNT_KEYS "olm_account_keys"
 /* Access token, after a login */

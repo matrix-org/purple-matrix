@@ -1094,8 +1094,14 @@ void matrix_room_handle_timeline_event(PurpleConversation *conv,
     }
     flags = PURPLE_MESSAGE_RECV;
 
-    if (purple_strequal(matrix_json_object_get_string_member(json_content_obj, "format"), "org.matrix.custom.html")) {
-        escaped_body = g_strdup(matrix_json_object_get_string_member(json_content_obj, "formatted_body"));
+    gboolean prefer_markdown = purple_account_get_bool(conv->account,
+            PRPL_ACCOUNT_OPT_PREFER_MARKDOWN, FALSE);
+    if (!prefer_markdown) {
+        if (purple_strequal(matrix_json_object_get_string_member(json_content_obj, "format"), "org.matrix.custom.html")) {
+            escaped_body = g_strdup(matrix_json_object_get_string_member(json_content_obj, "formatted_body"));
+        } else {
+            escaped_body = purple_markup_escape_text(tmp_body ? tmp_body : msg_body, -1);
+        }
     } else {
         escaped_body = purple_markup_escape_text(tmp_body ? tmp_body : msg_body, -1);
     }
