@@ -210,6 +210,7 @@ static void _on_typing(PurpleConversation *conv,
         old_user_ids = matrix_json_object_get_array_member(old_state->content, "user_ids");
         old_len = json_array_get_length(old_user_ids);
     } else {
+	old_user_ids = NULL; /* Work around gcc 10.3.1 false uninit warn */
         old_len = 0;
     }
     
