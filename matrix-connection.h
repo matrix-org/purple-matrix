@@ -26,6 +26,7 @@
 #ifndef MATRIX_CONNECTION_H
 #define MATRIX_CONNECTION_H
 
+#include <time.h>
 #include <glib.h>
 
 struct _PurpleConnection;
@@ -37,10 +38,15 @@ typedef struct _MatrixConnectionData {
     gchar *user_id;         /* our full user id ("@user:server") */
     gchar *access_token;    /* access token corresponding to our user */
 
+    struct timespec last_sync;
+    gboolean syncRun;
+
     /* the active sync request */
     struct _MatrixApiRequestData *active_sync;
     /* All the end-2-end encryption magic */
     struct _MatrixE2EData *e2e;
+
+    guint check_sync_handle;
 } MatrixConnectionData;
 
 

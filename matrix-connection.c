@@ -26,6 +26,7 @@
 
 /* libpurple */
 #include <debug.h>
+#include <eventloop.h>
 #include <libpurple/request.h>
 #include <libpurple/core.h>
 
@@ -34,6 +35,8 @@
 #include "matrix-api.h"
 #include "matrix-json.h"
 #include "matrix-sync.h"
+
+static gboolean checkSyncRunning(gpointer user_data);
 
 static void _start_next_sync(MatrixConnectionData *ma,
         const gchar *next_batch, gboolean full_state);
@@ -46,6 +49,7 @@ void matrix_connection_new(PurpleConnection *pc)
      g_assert(purple_connection_get_protocol_data(pc) == NULL);
      conn = g_new0(MatrixConnectionData, 1);
      conn->pc = pc;
+     conn->syncRun = FALSE;
      purple_connection_set_protocol_data(pc, conn);
 }
 
@@ -55,6 +59,8 @@ void matrix_connection_free(PurpleConnection *pc)
     MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
 
     g_assert(conn != NULL);
+
+    conn->syncRun = FALSE;
 
     matrix_e2e_cleanup_connection(conn);
     purple_connection_set_protocol_data(pc, NULL);
@@ -115,6 +121,8 @@ static void _sync_complete(MatrixConnectionData *ma, gpointer user_data,
     const gchar *next_batch;
 
     ma->active_sync = NULL;
+    ma->syncRun = TRUE;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &ma->last_sync);
 
     if(body == NULL) {
         purple_connection_error_reason(pc, PURPLE_CONNECTION_ERROR_OTHER_ERROR,
@@ -164,6 +172,43 @@ static gboolean _account_has_active_conversations(PurpleAccount *account)
     return FALSE;
 }
 
+static gboolean checkSyncRunning(gpointer user_data)
+{
+    MatrixConnectionData *ma = (MatrixConnectionData*) user_data;
+    const gchar *next_batch;
+
+    gboolean restart = FALSE;
+
+    struct timespec start;
+    struct timespec end;
+    long startMillis, endMillis;
+    long elapsedMillis = 0;
+
+    if(ma == NULL || ma->syncRun == FALSE){
+      restart = FALSE;
+    }else{
+      start = ma->last_sync;
+      clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+
+      startMillis = (start.tv_sec*1000) + (start.tv_nsec / 1.0e6);
+      endMillis = (end.tv_sec*1000) + (end.tv_nsec / 1.0e6);
+      elapsedMillis = endMillis - startMillis;
+
+      if(elapsedMillis > 60000){
+        restart = TRUE;
+      }
+    }
+
+    if(restart){
+      clock_gettime(CLOCK_MONOTONIC_RAW, &ma->last_sync);
+      matrix_connection_cancel_sync(ma->pc);
+      next_batch = purple_account_get_string(ma->pc->account,
+            PRPL_ACCOUNT_OPT_NEXT_BATCH, NULL);
+      _start_next_sync(ma, next_batch, FALSE);
+    }
+    return TRUE;
+}
+
 static void _start_sync(MatrixConnectionData *conn)
 {
     PurpleConnection *pc = conn->pc;
@@ -205,6 +250,11 @@ static void _start_sync(MatrixConnectionData *conn)
         purple_connection_update_progress(pc, _("Connected"), 2, 3);
         purple_connection_set_state(pc, PURPLE_CONNECTED);
     }
+
+    conn->syncRun = FALSE;
+
+    purple_timeout_remove(conn->check_sync_handle);
+    conn->check_sync_handle = purple_timeout_add(5000, checkSyncRunning, conn);
 
     _start_next_sync(conn, next_batch, needs_full_state_sync);
 }
