@@ -682,8 +682,10 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
     if(since != NULL)
         g_string_append_printf(url, "&since=%s", purple_url_encode(since));
 
-    if(full_state)
+    if(full_state) {
         g_string_append(url, "&full_state=true");
+        g_string_append(url, "&filter={\"room\":{\"state\":{\"lazy_load_members\":true}}}");
+    };
 
     purple_debug_info("matrixprpl", "syncing %s since %s (full_state=%i)\n",
                 conn->pc->account->username, since, full_state);
