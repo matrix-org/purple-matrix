@@ -100,7 +100,7 @@
 #define N_(a) (a)
 
 /* data for our 'about' box */
-#define DISPLAY_VERSION "1.0"
+#define DISPLAY_VERSION "0.1.0"
 #define MATRIX_WEBSITE "http://matrix.org"
 
 /* our protocol ID string */
