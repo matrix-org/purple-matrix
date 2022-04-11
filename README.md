@@ -5,6 +5,12 @@ This project is a plugin for
 ability to communicate with [matrix.org](http://matrix.org) homeservers to any
 libpurple-based clients (such as [Pidgin](http://www.pidgin.im)).
 
+# Update 2022/04/11
+
+This project is essentially unmaintained. It may still work for you, in which case
+good luck to you; however, it lacks many important features that are critical to a
+modern Matrix client (not least of which is [end-to-end encryption support](https://github.com/matrix-org/purple-matrix/issues/18)).
+
 # Status
 
 This project is somewhat alpha, and only basic functionality has been
