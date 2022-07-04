@@ -238,6 +238,11 @@ static int _handle_message_complete(http_parser *http_parser)
     MatrixApiResponseParserData *response_data = http_parser->data;
     GError *err = NULL;
 
+    if (!response_data->content_type) {
+            purple_debug_info("matrixprpl", "Missing content type\n");
+            return 1;
+    }
+        
     if(strcmp(response_data->content_type, "application/json") == 0) {
         if(!json_parser_load_from_data(response_data -> json_parser,
                                        response_data->body,
