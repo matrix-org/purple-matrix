@@ -127,4 +127,6 @@
 /* identifiers for the chat info / "components" */
 #define PRPL_CHAT_INFO_ROOM_ID "room_id"
 
+#define PRPL_CHAT_INFO_ROOM_ALIAS "room_alias"
+
 #endif

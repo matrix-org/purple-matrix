@@ -397,7 +397,20 @@ static void _join_completed(MatrixConnectionData *conn,
     room_id = matrix_json_object_get_string_member(root_obj, "room_id");
     purple_debug_info("matrixprpl", "join %s completed", room_id);
 
-    g_hash_table_destroy(components);
+    const char *room_id_chat = g_hash_table_lookup(components, PRPL_CHAT_INFO_ROOM_ID);
+    const char *room_alias_chat = g_hash_table_lookup(components, PRPL_CHAT_INFO_ROOM_ALIAS);
+    PurpleChat *chat = purple_blist_find_chat(conn->pc->account, room_id);
+    if (chat == 0)
+      chat = purple_blist_find_chat(conn->pc->account, room_id_chat); // user entered 'room id' or 'room alias'
+    if (chat != 0) {
+      g_hash_table_insert(chat->components, g_strdup(PRPL_CHAT_INFO_ROOM_ID), g_strdup(room_id)); // set server received 'room id'
+      if (room_id_chat != 0 && room_id_chat[0] == '#')
+        g_hash_table_insert(chat->components, g_strdup(PRPL_CHAT_INFO_ROOM_ALIAS), g_strdup(room_id_chat));
+      else
+        g_hash_table_insert(chat->components, g_strdup(PRPL_CHAT_INFO_ROOM_ALIAS), g_strdup(room_alias_chat));
+    }
+
+  g_hash_table_destroy(components);
 }
 
 
