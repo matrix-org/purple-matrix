@@ -418,10 +418,20 @@ static void _join_failed(MatrixConnectionData *conn,
     JsonObject *json_obj;
     const gchar *error = NULL;
     const gchar *title = "Error joining chat";
+    const gchar *code = NULL;
 
     if (json_root != NULL) {
         json_obj = matrix_json_node_get_object(json_root);
         error = matrix_json_object_get_string_member(json_obj, "error");
+        code = matrix_json_object_get_string_member(json_obj, "errcode");
+    }
+
+    if (strcmp(code, "M_NOT_FOUND") == 0) { // alias is free. create room.
+        const char *room_id_chat = g_hash_table_lookup(components, PRPL_CHAT_INFO_ROOM_ID);
+        if (room_id_chat != 0 && room_id_chat[0] == '#') {
+            matrix_api_create_room(conn, room_id_chat, _join_completed, _join_error, _join_failed, components);
+            return;
+        }
     }
 
     purple_notify_error(conn->pc, title, title, error);

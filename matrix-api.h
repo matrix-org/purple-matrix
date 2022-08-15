@@ -236,6 +236,14 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+
+MatrixApiRequestData *matrix_api_create_room(MatrixConnectionData *conn,
+        const gchar *room,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
 /**
  * Sends a typing notifiaction to a room
  *

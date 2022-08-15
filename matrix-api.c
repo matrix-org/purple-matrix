@@ -818,6 +818,49 @@ MatrixApiRequestData *matrix_api_join_room(MatrixConnectionData *conn,
     return fetch_data;
 }
 
+MatrixApiRequestData *matrix_api_create_room(MatrixConnectionData *conn,
+        const gchar *room,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+    gchar *json;
+    JsonGenerator *generator;
+    JsonNode *body_node;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "_matrix/client/r0/createRoom");
+    g_string_append(url, "?access_token=");
+    g_string_append(url, purple_url_encode(conn->access_token));
+
+    JsonObject *roomname;
+    roomname = json_object_new();
+    json_object_set_string_member(roomname, "name", room);
+
+    body_node = json_node_new(JSON_NODE_OBJECT);
+    json_node_set_object(body_node, roomname);
+
+    generator = json_generator_new();
+    json_generator_set_root(generator, body_node);
+    json = json_generator_to_data(generator, NULL);
+    g_object_unref(G_OBJECT(generator));
+    json_node_free(body_node);
+
+    purple_debug_info("matrixprpl", "creating %s\n", room);
+
+    fetch_data = matrix_api_start(url->str, "POST", json, conn, callback,
+            error_callback, bad_response_callback,
+            user_data, 0);
+    g_string_free(url, TRUE);
+    g_free(json);
+    json_object_unref(roomname);
+
+    return fetch_data;
+}
+
 MatrixApiRequestData *matrix_api_typing(MatrixConnectionData *conn,
         const gchar *room_id, gboolean typing,
         gint typing_timeout, MatrixApiCallback callback,
