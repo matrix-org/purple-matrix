@@ -934,6 +934,7 @@ void matrix_e2e_handle_sync_key_counts(PurpleConnection *pc, JsonObject *count_o
     gboolean need_to_send = force_send;
     gboolean valid_counts = FALSE;
     MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+    if (!conn || !conn->e2e) return;
     size_t max_keys = olm_account_max_number_of_one_time_keys(conn->e2e->oa);
     size_t to_create = max_keys;
 
