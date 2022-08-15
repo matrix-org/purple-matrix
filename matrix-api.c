@@ -1117,3 +1117,26 @@ MatrixApiRequestData *matrix_api_get_room_state(MatrixConnectionData *conn,
     return fetch_data;
 }
 #endif
+
+
+MatrixApiRequestData *matrix_api_get_public_rooms(MatrixConnectionData *conn,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    GString *url;
+    MatrixApiRequestData *fetch_data;
+
+    url = g_string_new(conn->homeserver);
+    g_string_append(url, "/_matrix/client/r0/publicRooms");
+
+    purple_debug_info("matrixprpl", "getting publicRooms list\n");
+
+    fetch_data = matrix_api_start(url->str, "GET", NULL, conn, callback,
+            error_callback, bad_response_callback,
+            user_data, 0);
+    g_string_free(url, TRUE);
+
+    return fetch_data;
+}
