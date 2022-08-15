@@ -443,10 +443,10 @@ void matrix_connection_join_room(struct _PurpleConnection *pc,
     /* we have to copy the components table, so that we can pass it back
      * later on :/
      */
-    copy = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    copy = g_hash_table_new(g_str_hash, g_str_equal);
     g_hash_table_iter_init (&iter, components);
     while (g_hash_table_iter_next (&iter, &key, &value)) {
-        g_hash_table_insert(copy, g_strdup(key), g_strdup(value));
+        g_hash_table_replace(copy, key, value);
     }
 
     matrix_api_join_room(conn, room, _join_completed, _join_error, _join_failed,
