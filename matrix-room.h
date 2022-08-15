@@ -102,4 +102,6 @@ gchar *matrix_room_displayname_to_userid(struct _PurpleConversation *conv,
  */
 PurpleRoomlist *matrixprpl_roomlist_get_list(PurpleConnection *pc);
 
+void matrixprpl_roomlist_cancel(PurpleRoomlist * list);
+
 #endif

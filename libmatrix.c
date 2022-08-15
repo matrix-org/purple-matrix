@@ -147,6 +147,8 @@ static GHashTable *matrixprpl_chat_info_defaults(PurpleConnection *gc,
     GHashTable *defaults;
 
     defaults = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, g_free);
+    if (room != NULL)
+		  g_hash_table_insert(defaults, PRPL_CHAT_INFO_ROOM_ID, g_strdup(room));
     return defaults;
 }
 
@@ -334,7 +336,7 @@ static PurplePluginProtocolInfo prpl_info =
     NULL,                                  /* set_chat_topic */
     NULL,                                  /* find_blist_chat */
     matrixprpl_roomlist_get_list,          /* roomlist_get_list */
-    NULL,                                  /* roomlist_cancel */
+    matrixprpl_roomlist_cancel,            /* roomlist_cancel */
     NULL,                                  /* roomlist_expand_category */
     NULL,                                  /* can_receive_file */
     NULL,                                  /* send_file */

@@ -1506,6 +1506,20 @@ void matrix_room_send_message(PurpleConversation *conv, const gchar *message)
 /* ************************************************************************** */
 
 
+typedef struct _RoomListAddThread {
+  PurpleRoomlist *roomlist;
+  PurpleRoomlistRoom *room;
+  GMutex mutex;
+  GCond cond;
+} RoomListAddThread;
+
+gboolean _roomlist_main_add(RoomListAddThread* p) {
+  purple_roomlist_room_add(p->roomlist, p->room);
+  g_mutex_lock(&p->mutex);
+  g_cond_signal (&p->cond);
+  g_mutex_unlock (&p->mutex);
+  return G_SOURCE_REMOVE;
+}
 
 static void _roomlist_parse_chunk(JsonArray *chunk_array, guint chunk_idx,
         JsonNode *chunk, gpointer user_data)
@@ -1514,7 +1528,7 @@ static void _roomlist_parse_chunk(JsonArray *chunk_array, guint chunk_idx,
 	PurpleRoomlistRoom *room;
     JsonObject *chunk_obj;
 	const gchar *room_id;
-	GString *aliases_str;
+	GString *aliases_str = 0;
 	JsonArray *aliases;
 	gint index, length;
 	gint num_joined_members;
@@ -1541,6 +1555,12 @@ static void _roomlist_parse_chunk(JsonArray *chunk_array, guint chunk_idx,
 			aliases_str = g_string_append(aliases_str, alias);
 		}
 	}
+  if (aliases_str == 0) {
+    aliases_str = g_string_new(NULL);
+    const gchar * alias = matrix_json_object_get_string_member(chunk_obj, "canonical_alias");
+    if (alias)
+      aliases_str = g_string_append(aliases_str, alias);
+  }
 	purple_roomlist_room_add_field(roomlist, room, aliases_str->str);
 	g_string_free(aliases_str, TRUE);
 	
@@ -1550,11 +1570,34 @@ static void _roomlist_parse_chunk(JsonArray *chunk_array, guint chunk_idx,
 	purple_roomlist_room_add_field(roomlist, room, matrix_json_object_get_string_member(chunk_obj, "name"));
 	purple_roomlist_room_add_field(roomlist, room, matrix_json_object_get_string_member(chunk_obj, "topic"));
 	
-	purple_roomlist_room_add(roomlist, room);
+  RoomListAddThread * t = g_malloc0(sizeof(RoomListAddThread));
+  t->roomlist = roomlist;
+  t->room = room;
+  g_mutex_lock(&t->mutex);
+  g_idle_add((GSourceFunc)_roomlist_main_add, t);
+  g_cond_wait(&t->cond, &t->mutex);
+  g_mutex_unlock(&t->mutex);
+  g_free(t);
+  usleep(10 * 1000);
+}
+
+typedef struct _RoomListThread {
+  JsonNode *json_root;
+  JsonObject *rooms;
+  JsonArray *chunk_array;
+  PurpleRoomlist *roomlist;
+} RoomListThread;
+
+static void _roomlist_foreach_thread(RoomListThread* p) {
+  json_array_foreach_element(p->chunk_array, _roomlist_parse_chunk, p->roomlist);
+  json_node_free(p->json_root);
+  g_free(p);
+  purple_roomlist_set_in_progress(p->roomlist, FALSE);
+  pthread_exit(0);
 }
 
 static void _roomlist_got_list(MatrixConnectionData *conn,
-        gpointer user_data, JsonNode *json_root)
+        gpointer user_data, JsonNode *json_root, const char *body, size_t body_len, const char *content_type)
 {
 	PurpleRoomlist *roomlist = user_data;
 	JsonObject *rooms;
@@ -1565,9 +1608,12 @@ static void _roomlist_got_list(MatrixConnectionData *conn,
 	rooms = matrix_json_node_get_object(json_root);
 	chunk_array = matrix_json_object_get_array_member(rooms, "chunk");
 	
-    json_array_foreach_element(chunk_array, _roomlist_parse_chunk, roomlist);
-	
-	purple_roomlist_set_in_progress(roomlist, FALSE);
+  RoomListThread * t = g_malloc0(sizeof(RoomListThread));
+  t->json_root = json_node_copy(json_root);
+  t->rooms = rooms;
+  t->chunk_array = chunk_array;
+  t->roomlist = roomlist;
+  pthread_create((pthread_t*)&t->roomlist->proto_data, 0, (void * (*)(void *))_roomlist_foreach_thread, t);
 }
 
 PurpleRoomlist *matrixprpl_roomlist_get_list(PurpleConnection *pc)
@@ -1603,3 +1649,7 @@ PurpleRoomlist *matrixprpl_roomlist_get_list(PurpleConnection *pc)
 	return roomlist;
 }
 
+void matrixprpl_roomlist_cancel(PurpleRoomlist *roomlist)
+{
+  pthread_cancel((pthread_t)roomlist->proto_data);
+}
