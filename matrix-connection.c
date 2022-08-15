@@ -85,6 +85,14 @@ void matrix_connection_cancel_sync(PurpleConnection *pc)
     return;
 }
 
+void matrix_connection_resume_sync(PurpleConnection *pc) {
+    MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+
+    const gchar * next_batch = purple_account_get_string(pc->account, PRPL_ACCOUNT_OPT_NEXT_BATCH, NULL);
+
+    _start_next_sync(conn, next_batch, FALSE);
+}
+
 /**
  * /sync failed
  */
@@ -397,6 +405,18 @@ static void _join_completed(MatrixConnectionData *conn,
     room_id = matrix_json_object_get_string_member(root_obj, "room_id");
     purple_debug_info("matrixprpl", "join %s completed", room_id);
 
+    const char *room_id_chat = g_hash_table_lookup(components, PRPL_CHAT_INFO_ROOM_ID);
+    struct _PurpleChat *chat = purple_blist_find_chat(conn->pc->account, room_id);
+    if (chat == 0 && room_id_chat != 0)
+        chat = purple_blist_find_chat(conn->pc->account, room_id_chat);
+    if (chat != 0) {
+        g_hash_table_insert(chat->components, g_strdup(PRPL_CHAT_INFO_ROOM_ID), g_strdup(room_id)); // set server received 'room id'
+        if (!chat->alias)
+            purple_blist_alias_chat(chat, room_id_chat);
+        purple_blist_node_set_bool(&chat->node, "gtk-persistent", TRUE); // fixing "M_UNKNOWN" "No known servers"
+    }
+    matrix_connection_resume_sync(conn->pc);
+
     g_hash_table_destroy(components);
 }
 
@@ -407,6 +427,7 @@ static void _join_error(MatrixConnectionData *conn,
     GHashTable *components = user_data;
     g_hash_table_destroy(components);
     matrix_api_error(conn, user_data, error_message);
+    matrix_connection_resume_sync(conn->pc);
 }
 
 
@@ -427,6 +448,7 @@ static void _join_failed(MatrixConnectionData *conn,
     purple_notify_error(conn->pc, title, title, error);
     purple_serv_got_join_chat_failed(conn->pc, components);
     g_hash_table_destroy(components);
+    matrix_connection_resume_sync(conn->pc);
 }
 
 
@@ -439,6 +461,8 @@ void matrix_connection_join_room(struct _PurpleConnection *pc,
     gpointer key, value;
 
     MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+
+    matrix_connection_cancel_sync(pc); // prevent all sync event before join result code.
 
     /* we have to copy the components table, so that we can pass it back
      * later on :/
