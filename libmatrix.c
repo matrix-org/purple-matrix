@@ -95,6 +95,22 @@ static guint matrixprpl_conv_send_typing(PurpleConversation *conv,
     return 20;
 }
 
+static void matrixprpl_chat_removed(PurpleBlistNode *node, PurpleConnection *pc)
+{
+    if(!PURPLE_BLIST_NODE_IS_CHAT(node))
+        return;
+		PurpleChat *c = PURPLE_CHAT(node);
+    if (pc->account != c->account)
+        return;
+    const char *room = g_hash_table_lookup(c->components, PRPL_CHAT_INFO_ROOM_ID);
+    if (room) {
+        int chat_id = g_str_hash(room);
+        PurpleConversation *conv = purple_find_chat(pc, chat_id);
+        if (conv)
+            matrix_room_leave_chat(conv);
+    }
+}
+
 /**
  * Start the connection to a matrix account
  */
@@ -108,6 +124,8 @@ void matrixprpl_login(PurpleAccount *acct)
         acct, PURPLE_CALLBACK(matrixprpl_conv_send_typing), pc);
     
     pc->flags |= PURPLE_CONNECTION_HTML;
+
+    purple_signal_connect(purple_blist_get_handle(), "blist-node-removed", acct, PURPLE_CALLBACK(matrixprpl_chat_removed), pc);
 }
 
 

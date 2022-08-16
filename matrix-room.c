@@ -1175,7 +1175,8 @@ void matrix_room_leave_chat(PurpleConversation *conv)
     purple_conversation_set_data(conv, PURPLE_CONV_DATA_STATE, NULL);
 
     member_table = matrix_room_get_member_table(conv);
-    matrix_roommembers_free_table(member_table);
+    if (member_table)
+        matrix_roommembers_free_table(member_table);
     purple_conversation_set_data(conv, PURPLE_CONV_MEMBER_TABLE, NULL);
 
     event_queue = _get_event_queue(conv);
