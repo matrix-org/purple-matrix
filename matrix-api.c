@@ -52,7 +52,7 @@ void matrix_api_error(MatrixConnectionData *conn, gpointer user_data,
         const gchar *error_message)
 {
     if(strcmp(error_message, "cancelled") != 0)
-        purple_connection_error_reason(conn->pc,
+        purple_connection_error_reason(conn->pc->gc,
             PURPLE_CONNECTION_ERROR_NETWORK_ERROR, error_message);
 }
 
@@ -87,7 +87,7 @@ void matrix_api_bad_response(MatrixConnectionData *ma, gpointer user_data,
         error_reason = PURPLE_CONNECTION_ERROR_NETWORK_ERROR;
     }
 
-    purple_connection_error_reason(ma->pc,
+    purple_connection_error_reason(ma->pc->gc,
             error_reason,
             error_message);
 
@@ -531,7 +531,7 @@ static MatrixApiRequestData *matrix_api_start_full(const gchar *url,
     }
 #endif
 
-    request = _build_request(conn->pc->account, url, method, extra_headers,
+    request = _build_request(conn->pc, url, method, extra_headers,
                              body, extra_data, extra_len);
 
     if(purple_debug_is_unsafe())
@@ -547,13 +547,13 @@ static MatrixApiRequestData *matrix_api_start_full(const gchar *url,
 
 #if PURPLE_VERSION_CHECK(2,11,0)
     purple_data = purple_util_fetch_url_request_data_len_with_account(
-            conn -> pc -> account,
+            conn -> pc,
             url, FALSE, NULL, TRUE, request->str, request->len,
             TRUE, max_len, matrix_api_complete,
             data);
 #else
     purple_data = purple_util_fetch_url_request_len_with_account(
-            conn -> pc -> account,
+            conn -> pc,
             url, FALSE, NULL, TRUE, request->str, TRUE,
             max_len, matrix_api_complete,
             data);
@@ -691,7 +691,7 @@ MatrixApiRequestData *matrix_api_sync(MatrixConnectionData *conn,
         g_string_append(url, "&full_state=true");
 
     purple_debug_info("matrixprpl", "syncing %s since %s (full_state=%i)\n",
-                conn->pc->account->username, since, full_state);
+                conn->pc->username, since, full_state);
 
     /* XXX: stream the response, so that we don't need to allocate so much
      * memory? But it's JSON

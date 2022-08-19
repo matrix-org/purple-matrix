@@ -36,6 +36,6 @@ gboolean matrix_e2e_parse_media_decrypt_info(MatrixMediaCryptInfo **crypt,
                                              JsonObject *file_obj);
 const char *matrix_e2e_decrypt_media(MatrixMediaCryptInfo *crypt,
                                      size_t inlen, const void *in, void **out);
-void matrix_e2e_handle_sync_key_counts(struct _PurpleConnection *pc, struct _JsonObject *count_object, gboolean force_send);
+void matrix_e2e_handle_sync_key_counts(struct _MatrixConnectionData *pc, struct _JsonObject *count_object, gboolean force_send);
 
 #endif

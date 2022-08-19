@@ -45,7 +45,7 @@ void matrix_connection_new(PurpleConnection *pc)
 
      g_assert(purple_connection_get_protocol_data(pc) == NULL);
      conn = g_new0(MatrixConnectionData, 1);
-     conn->pc = pc;
+     conn->pc = pc->account;
      purple_connection_set_protocol_data(pc, conn);
 }
 
@@ -111,7 +111,7 @@ static void _sync_complete(MatrixConnectionData *ma, gpointer user_data,
     JsonNode *body,
     const char *raw_body, size_t raw_body_len, const char *content_type)
 {
-    PurpleConnection *pc = ma->pc;
+    PurpleConnection *pc = ma->pc->gc;
     const gchar *next_batch;
 
     ma->active_sync = NULL;
@@ -166,7 +166,7 @@ static gboolean _account_has_active_conversations(PurpleAccount *account)
 
 static void _start_sync(MatrixConnectionData *conn)
 {
-    PurpleConnection *pc = conn->pc;
+    PurpleConnection *pc = conn->pc->gc;
     gboolean needs_full_state_sync = TRUE;
     const gchar *next_batch;
     const gchar *device_id = purple_account_get_string(pc->account,
@@ -214,7 +214,7 @@ static void _login_completed(MatrixConnectionData *conn,
         JsonNode *json_root,
         const char *raw_body, size_t raw_body_len, const char *content_type)
 {
-    PurpleConnection *pc = conn->pc;
+    PurpleConnection *pc = conn->pc->gc;
     JsonObject *root_obj;
     const gchar *access_token;
     const gchar *device_id;
@@ -307,7 +307,7 @@ static void _password_login(MatrixConnectionData *conn, PurpleAccount *acct)
                 _login_completed, conn);
     } else {
         purple_account_request_password(acct,G_CALLBACK( _password_received),
-                G_CALLBACK(_password_cancel), conn->pc);
+                G_CALLBACK(_password_cancel), conn->pc->gc);
     }
 }
 
@@ -424,8 +424,8 @@ static void _join_failed(MatrixConnectionData *conn,
         error = matrix_json_object_get_string_member(json_obj, "error");
     }
 
-    purple_notify_error(conn->pc, title, title, error);
-    purple_serv_got_join_chat_failed(conn->pc, components);
+    purple_notify_error(conn->pc->gc, title, title, error);
+    purple_serv_got_join_chat_failed(conn->pc->gc, components);
     g_hash_table_destroy(components);
 }
 

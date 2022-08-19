@@ -334,7 +334,8 @@ void matrix_sync_parse(PurpleConnection *pc, JsonNode *body,
     JsonObject *dev_key_counts = matrix_json_object_get_object_member(rootObj,
                                     "device_one_time_keys_count");
     if (dev_key_counts) {
-	      matrix_e2e_handle_sync_key_counts(pc, dev_key_counts, FALSE);
+	      MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
+	      matrix_e2e_handle_sync_key_counts(conn, dev_key_counts, FALSE);
     }
 
     /* Now go round the rooms again getting the timeline events */

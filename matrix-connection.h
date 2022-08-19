@@ -29,10 +29,11 @@
 #include <glib.h>
 
 struct _PurpleConnection;
+struct _PurpleAccount;
 struct _MatrixE2EData;
 
 typedef struct _MatrixConnectionData {
-    struct _PurpleConnection *pc;
+    struct _PurpleAccount *pc;
     gchar *homeserver;      /* URL of the homeserver. Always ends in '/' */
     gchar *user_id;         /* our full user id ("@user:server") */
     gchar *access_token;    /* access token corresponding to our user */
