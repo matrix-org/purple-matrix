@@ -666,6 +666,8 @@ static void _image_download_complete(MatrixConnectionData *ma,
           const char *raw_body, size_t raw_body_len, const char *content_type)
 {
     struct ReceiveImageData *rid = user_data;
+    gchar *msg;
+
     if (rid->crypt) {
         return _image_download_complete_crypt(rid, raw_body, raw_body_len);
     }
@@ -673,14 +675,18 @@ static void _image_download_complete(MatrixConnectionData *ma,
         /* Excellent - something to work with */
         int img_id = purple_imgstore_add_with_id(g_memdup(raw_body, raw_body_len),
                                                  raw_body_len, NULL);
+        msg = g_strdup_printf("<IMG ID=\"%d\">", img_id);
         serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id), rid->sender_display_name,
                 PURPLE_MESSAGE_RECV | PURPLE_MESSAGE_IMAGES,
-                g_strdup_printf("<IMG ID=\"%d\">", img_id), rid->timestamp / 1000);
+                msg, rid->timestamp / 1000);
+        g_free(msg);
     } else {
+        msg = g_strdup_printf("%s (unknown type %s)",
+                              rid->original_body, content_type);
         serv_got_chat_in(rid->conv->account->gc, g_str_hash(rid->room_id),
                 rid->sender_display_name, PURPLE_MESSAGE_RECV,
-                g_strdup_printf("%s (unknown type %s)",
-                        rid->original_body, content_type), rid->timestamp / 1000);
+                msg, rid->timestamp / 1000);
+        g_free(msg);
     }
     purple_conversation_set_data(rid->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
             NULL);
@@ -742,6 +748,7 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
     const gchar *mime_type = "unknown";
     JsonObject *json_file_obj = NULL;
     JsonObject *json_info_object;
+    gchar *msg;
 
     url = matrix_json_object_get_string_member(json_content_object, "url");
     if (!url) {
@@ -772,11 +779,14 @@ static gboolean _handle_incoming_media(PurpleConversation *conv,
                           mime_type, size);
     }
 
+    /* TODO convert size into a human readable format */
+    msg = g_strdup_printf("%s (type %s size %" PRId64 ") %s",
+                          msg_body, mime_type, size, download_url->str);
     serv_got_chat_in(conv->account->gc, g_str_hash(room_id),
             sender_display_name, PURPLE_MESSAGE_RECV,
-            /* TODO convert size into a human readable format */
-            g_strdup_printf("%s (type %s size %" PRId64 ") %s",
-                    msg_body, mime_type, size, download_url->str), timestamp / 1000);
+            msg, timestamp / 1000);
+    g_free(msg);
+    g_string_free(download_url, TRUE);
 
     /* m.audio is not supposed to have a thumbnail, handling completed
      */

@@ -1234,6 +1234,7 @@ void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
         close_e2e_db(conn);
         g_hash_table_destroy(conn->e2e->olm_session_hash);
         g_free(conn->e2e->curve25519_pubkey);
+        g_free(conn->e2e->ed25519_pubkey);
         g_free(conn->e2e->oa);
         g_free(conn->e2e->device_id);
         g_free(conn->e2e);
