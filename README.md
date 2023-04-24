@@ -5,6 +5,9 @@ This project is a plugin for
 ability to communicate with [matrix.org](http://matrix.org) homeservers to any
 libpurple-based clients (such as [Pidgin](http://www.pidgin.im)).
 
+If you want to bridge the other way, using a matrix client to communicate with
+any backend supported by libpurple, see [matrix-bifröst](https://github.com/matrix-org/matrix-bifrost).
+
 # Update 2022/04/11
 
 This project is essentially unmaintained. It may still work for you, in which case
