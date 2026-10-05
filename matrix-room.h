@@ -31,6 +31,8 @@
 #include <json-glib/json-glib.h>
 
 #include "libmatrix.h"
+#include "matrix-statetable.h"
+#include "matrix-roommembers.h"
 
 struct _PurpleConversation;
 struct _PurpleConnection;
@@ -84,6 +86,11 @@ void matrix_room_send_typing(struct _PurpleConversation *conv, gboolean typing);
  */
 void matrix_room_send_message(struct _PurpleConversation *conv,
         const gchar *message);
+
+MatrixRoomStateEventTable *matrix_room_get_state_table(
+        struct _PurpleConversation *conv);
+MatrixRoomMemberTable *matrix_room_get_member_table(
+        struct _PurpleConversation *conv);
 
 
 /**

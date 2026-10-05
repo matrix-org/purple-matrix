@@ -31,6 +31,36 @@
 #include <json-glib/json-glib.h>
 
 #include "connection.h"
+#include "conversation.h"
+#include "matrix-event.h"
+#include "matrix-room.h"
+#include "matrix-roommembers.h"
+#include "matrix-statetable.h"
+
+#define PURPLE_CONV_DATA_ACTIVE_SEND "active_send"
+#define MEGOLM_ROTATE_AFTER 100
+#define MEGOLM_ALGO "m.megolm.v1.aes-sha2"
+#define OLM_ALGO "m.olm.v1.curve25519-aes-sha2"
+
+gboolean matrix_e2e_conversation_is_encrypted(PurpleConversation *conv)
+{
+    MatrixRoomStateEventTable *state_table;
+    MatrixRoomEvent *event;
+    const gchar *algorithm;
+
+    state_table = matrix_room_get_state_table(conv);
+    if (!state_table) {
+        return FALSE;
+    }
+    event = matrix_statetable_get_event(state_table, "m.room.encryption", "");
+    if (!event) {
+        return FALSE;
+    }
+    algorithm = matrix_json_object_get_string_member(event->content,
+            "algorithm");
+    return algorithm != NULL && algorithm[0] != '\0';
+}
+
 #ifndef MATRIX_NO_E2E
 #include "olm/olm.h"
 #include <gcrypt.h>
@@ -45,7 +75,35 @@ struct _MatrixE2EData {
     sqlite3 *db;
     /* Mapping from MatrixHashKeyOlm to MatrixOlmSession */
     GHashTable *olm_session_hash;
+    /* Mapping from user_id to GHashTable(device_id -> MatrixE2EDevice) */
+    GHashTable *devices;
 };
+
+typedef struct _MatrixE2EDevice {
+    gchar *user_id;
+    gchar *device_id;
+    gchar *curve25519;
+    gchar *ed25519;
+} MatrixE2EDevice;
+
+typedef struct _MatrixEncryptSend {
+    MatrixConnectionData *conn;
+    PurpleConversation *conv;
+    gchar *event_type;
+    gchar *txn_id;
+    JsonObject *content;
+    MatrixApiCallback callback;
+    MatrixApiErrorCallback error_callback;
+    MatrixApiBadResponseCallback bad_response_callback;
+    gpointer user_data;
+    /* Have we already queried the device keys during this send? Without this
+     * we would loop forever querying devices for a user that has no e2e
+     * capable devices at all.
+     */
+    gboolean queried_devices;
+    /* Have we already claimed one-time keys during this send? */
+    gboolean claimed_otks;
+} MatrixEncryptSend;
 
 #define PURPLE_CONV_E2E_STATE "e2e"
 
@@ -53,6 +111,11 @@ struct _MatrixE2EData {
 typedef struct _MatrixE2ERoomData {
     /* Mapping from _MatrixHashKeyInBoundMegOlm to OlmInboundGroupSession */
     GHashTable *megolm_sessions_inbound;
+    OlmOutboundGroupSession *megolm_outbound;
+    gchar *megolm_session_id;
+    /* Keys of the form "user_id\\ndevice_id" that have the current outbound key */
+    GHashTable *megolm_shared;
+    guint megolm_messages_sent;
 } MatrixE2ERoomData;
 
 typedef struct _MatrixHashKeyOlm {
@@ -86,6 +149,30 @@ static void key_upload_callback(MatrixConnectionData *conn,
                                 struct _JsonNode *json_root,
                                 const char *body,
                                 size_t body_len, const char *content_type);
+static MatrixApiRequestData *encrypt_send_continue(MatrixEncryptSend *ctx);
+static void encrypt_send_free(MatrixEncryptSend *ctx);
+static void encrypt_send_continue_cb(MatrixConnectionData *conn,
+                                     gpointer user_data,
+                                     struct _JsonNode *json_root,
+                                     const char *body,
+                                     size_t body_len,
+                                     const char *content_type);
+static void encrypt_keyshare_complete(MatrixConnectionData *conn,
+                                      gpointer user_data,
+                                      struct _JsonNode *json_root,
+                                      const char *body,
+                                      size_t body_len,
+                                      const char *content_type);
+static MatrixOlmSession *find_olm_session(MatrixConnectionData *conn,
+                                          const char *sender_id,
+                                          const char *sender_key,
+                                          const char *body);
+static MatrixOlmSession *store_olm_session(MatrixConnectionData *conn,
+                                           OlmSession *session,
+                                           const char *sender_id,
+                                           const char *sender_key);
+static int update_olm_session(MatrixConnectionData *conn,
+                              MatrixOlmSession *mos);
 
 /* Really clear an area of memory */
 static void clear_mem(volatile char *data, size_t len)
@@ -278,6 +365,904 @@ static void store_inbound_megolm_session(PurpleConversation *conv,
     g_hash_table_insert(get_e2e_inbound_megolm_hash(conv), key, igs);
 }
 
+static gchar *json_object_to_cstring(JsonObject *obj)
+{
+    JsonNode *node;
+    JsonGenerator *generator;
+    gchar *json;
+
+    node = json_node_new(JSON_NODE_OBJECT);
+    json_node_set_object(node, obj);
+    generator = json_generator_new();
+    json_generator_set_root(generator, node);
+    json = json_generator_to_data(generator, NULL);
+    g_object_unref(G_OBJECT(generator));
+    json_node_free(node);
+    return json;
+}
+
+static void free_e2e_device(gpointer p)
+{
+    MatrixE2EDevice *dev = p;
+    g_free(dev->user_id);
+    g_free(dev->device_id);
+    g_free(dev->curve25519);
+    g_free(dev->ed25519);
+    g_free(dev);
+}
+
+static gchar *device_share_key(const gchar *user_id, const gchar *device_id)
+{
+    return g_strdup_printf("%s\n%s", user_id, device_id);
+}
+
+static MatrixOlmSession *get_any_olm_session(MatrixConnectionData *conn,
+        const char *sender_id, const char *sender_key)
+{
+    MatrixHashKeyOlm match;
+    MatrixOlmSession *head;
+
+    match.sender_key = (gchar *)sender_key;
+    match.sender_id = (gchar *)sender_id;
+    head = g_hash_table_lookup(conn->e2e->olm_session_hash, &match);
+    if (head) {
+        return head;
+    }
+    /* Load any pickled sessions for this device from the db */
+    find_olm_session(conn, sender_id, sender_key, "");
+    return g_hash_table_lookup(conn->e2e->olm_session_hash, &match);
+}
+
+static gboolean verify_signed_json(const gchar *ed25519_key,
+        const gchar *user_id, const gchar *key_id, JsonObject *obj)
+{
+    gchar *raw;
+    JsonParser *parser;
+    JsonObject *dup;
+    JsonObject *sigs;
+    JsonObject *user_sigs;
+    gchar *sig_name;
+    const gchar *sig;
+    gchar *sig_copy;
+    GString *canonical;
+    OlmUtility *utility;
+    size_t ret;
+    gboolean ok = FALSE;
+
+    raw = json_object_to_cstring(obj);
+    parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, raw, -1, NULL)) {
+        g_free(raw);
+        g_object_unref(parser);
+        return FALSE;
+    }
+    g_free(raw);
+    dup = matrix_json_node_get_object(json_parser_get_root(parser));
+    sigs = matrix_json_object_get_object_member(dup, "signatures");
+    user_sigs = matrix_json_object_get_object_member(sigs, user_id);
+    sig_name = g_strdup_printf("ed25519:%s", key_id);
+    sig = matrix_json_object_get_string_member(user_sigs, sig_name);
+    g_free(sig_name);
+    if (!sig || !ed25519_key) {
+        g_object_unref(parser);
+        return FALSE;
+    }
+    sig_copy = g_strdup(sig);
+    json_object_remove_member(dup, "signatures");
+    json_object_remove_member(dup, "unsigned");
+    canonical = matrix_canonical_json(dup);
+    utility = olm_utility(g_malloc0(olm_utility_size()));
+    ret = olm_ed25519_verify(utility, ed25519_key, strlen(ed25519_key),
+            canonical->str, canonical->len, sig_copy, strlen(sig_copy));
+    ok = (ret != olm_error());
+    if (!ok) {
+        purple_debug_info("matrixprpl", "%s: signature check failed: %s\n",
+                __func__, olm_utility_last_error(utility));
+    }
+    olm_clear_utility(utility);
+    g_free(utility);
+    g_string_free(canonical, TRUE);
+    g_free(sig_copy);
+    g_object_unref(parser);
+    return ok;
+}
+
+static gboolean device_supports_megolm(JsonObject *device_keys)
+{
+    JsonArray *algorithms;
+    guint i, n;
+
+    algorithms = matrix_json_object_get_array_member(device_keys, "algorithms");
+    if (!algorithms) {
+        return TRUE;
+    }
+    n = json_array_get_length(algorithms);
+    for (i = 0; i < n; i++) {
+        const gchar *algo = matrix_json_array_get_string_element(algorithms, i);
+        if (algo && !strcmp(algo, MEGOLM_ALGO)) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static void store_queried_device(MatrixConnectionData *conn, const gchar *user_id,
+        const gchar *device_id, JsonObject *device_keys)
+{
+    JsonObject *keys;
+    gchar *curve_name, *ed_name;
+    const gchar *curve, *ed;
+    GHashTable *user_devs;
+    MatrixE2EDevice *dev;
+
+    if (!device_supports_megolm(device_keys)) {
+        purple_debug_info("matrixprpl",
+                "%s: skipping %s/%s (no megolm)\n",
+                __func__, user_id, device_id);
+        return;
+    }
+
+    keys = matrix_json_object_get_object_member(device_keys, "keys");
+    curve_name = g_strdup_printf("curve25519:%s", device_id);
+    ed_name = g_strdup_printf("ed25519:%s", device_id);
+    curve = matrix_json_object_get_string_member(keys, curve_name);
+    ed = matrix_json_object_get_string_member(keys, ed_name);
+    g_free(curve_name);
+    g_free(ed_name);
+    if (!curve || !ed) {
+        purple_debug_info("matrixprpl", "%s: missing keys for %s/%s\n",
+                __func__, user_id, device_id);
+        return;
+    }
+    if (!verify_signed_json(ed, user_id, device_id, device_keys)) {
+        purple_debug_info("matrixprpl",
+                "%s: invalid device signature for %s/%s\n",
+                __func__, user_id, device_id);
+        return;
+    }
+
+    if (!conn->e2e->devices) {
+        conn->e2e->devices = g_hash_table_new_full(g_str_hash, g_str_equal,
+                g_free, (GDestroyNotify)g_hash_table_destroy);
+    }
+    user_devs = g_hash_table_lookup(conn->e2e->devices, user_id);
+    if (!user_devs) {
+        user_devs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
+                free_e2e_device);
+        g_hash_table_insert(conn->e2e->devices, g_strdup(user_id), user_devs);
+    }
+
+    dev = g_new0(MatrixE2EDevice, 1);
+    dev->user_id = g_strdup(user_id);
+    dev->device_id = g_strdup(device_id);
+    dev->curve25519 = g_strdup(curve);
+    dev->ed25519 = g_strdup(ed);
+    g_hash_table_replace(user_devs, g_strdup(device_id), dev);
+}
+
+static void handle_device_key_query(MatrixConnectionData *conn, JsonObject *root)
+{
+    JsonObject *device_keys;
+    JsonObjectIter user_iter;
+    const gchar *user_id;
+    JsonNode *user_node;
+
+    device_keys = matrix_json_object_get_object_member(root, "device_keys");
+    if (!device_keys) {
+        return;
+    }
+    json_object_iter_init(&user_iter, device_keys);
+    while (json_object_iter_next(&user_iter, &user_id, &user_node)) {
+        JsonObject *devices = matrix_json_node_get_object(user_node);
+        JsonObjectIter dev_iter;
+        const gchar *device_id;
+        JsonNode *dev_node;
+
+        if (!devices) {
+            continue;
+        }
+        json_object_iter_init(&dev_iter, devices);
+        while (json_object_iter_next(&dev_iter, &device_id, &dev_node)) {
+            JsonObject *dev_obj = matrix_json_node_get_object(dev_node);
+            if (dev_obj) {
+                store_queried_device(conn, user_id, device_id, dev_obj);
+            }
+        }
+    }
+}
+
+static JsonObject *encrypt_olm_plaintext(MatrixConnectionData *conn,
+        MatrixOlmSession *mos, const gchar *their_curve, const gchar *plaintext)
+{
+    size_t message_type;
+    size_t random_len;
+    void *random_buf = NULL;
+    size_t message_len;
+    gchar *message;
+    size_t ret;
+    JsonObject *body;
+    JsonObject *ciphertext;
+    JsonObject *content;
+
+    message_type = olm_encrypt_message_type(mos->session);
+    if (message_type == olm_error()) {
+        purple_debug_warning("matrixprpl", "%s: message type: %s\n",
+                __func__, olm_session_last_error(mos->session));
+        return NULL;
+    }
+    random_len = olm_encrypt_random_length(mos->session);
+    if (random_len) {
+        random_buf = get_random(random_len);
+        if (!random_buf) {
+            return NULL;
+        }
+    }
+    message_len = olm_encrypt_message_length(mos->session, strlen(plaintext));
+    message = g_malloc0(message_len + 1);
+    ret = olm_encrypt(mos->session, plaintext, strlen(plaintext),
+            random_buf, random_len, message, message_len);
+    g_free(random_buf);
+    if (ret == olm_error()) {
+        purple_debug_warning("matrixprpl", "%s: encrypt failed: %s\n",
+                __func__, olm_session_last_error(mos->session));
+        g_free(message);
+        return NULL;
+    }
+    message[ret] = '\0';
+    update_olm_session(conn, mos);
+
+    body = json_object_new();
+    json_object_set_int_member(body, "type", (gint64)message_type);
+    json_object_set_string_member(body, "body", message);
+    g_free(message);
+
+    ciphertext = json_object_new();
+    json_object_set_object_member(ciphertext, their_curve, body);
+
+    content = json_object_new();
+    json_object_set_string_member(content, "algorithm", OLM_ALGO);
+    json_object_set_string_member(content, "sender_key",
+            conn->e2e->curve25519_pubkey);
+    json_object_set_object_member(content, "ciphertext", ciphertext);
+    return content;
+}
+
+static MatrixOlmSession *create_outbound_olm_session(MatrixConnectionData *conn,
+        MatrixE2EDevice *dev, const gchar *otk)
+{
+    OlmSession *session;
+    void *random_buf;
+    size_t random_len;
+    MatrixOlmSession *mos;
+
+    session = olm_session(g_malloc0(olm_session_size()));
+    random_len = olm_create_outbound_session_random_length(session);
+    random_buf = get_random(random_len);
+    if (!random_buf) {
+        g_free(session);
+        return NULL;
+    }
+    if (olm_create_outbound_session(session, conn->e2e->oa,
+            dev->curve25519, strlen(dev->curve25519),
+            otk, strlen(otk), random_buf, random_len) == olm_error()) {
+        purple_debug_warning("matrixprpl",
+                "%s: outbound olm session for %s/%s: %s\n",
+                __func__, dev->user_id, dev->device_id,
+                olm_session_last_error(session));
+        g_free(random_buf);
+        g_free(session);
+        return NULL;
+    }
+    g_free(random_buf);
+    mos = store_olm_session(conn, session, dev->user_id, dev->curve25519);
+    if (!mos) {
+        olm_clear_session(session);
+        g_free(session);
+        return NULL;
+    }
+    return mos;
+}
+
+static int ensure_outbound_megolm(PurpleConversation *conv,
+        MatrixConnectionData *conn)
+{
+    MatrixE2ERoomData *rd = get_e2e_room_data(conv);
+    OlmOutboundGroupSession *ogs;
+    void *random_buf;
+    size_t random_len;
+    size_t id_len, key_len;
+    gchar *session_id;
+    gchar *session_key;
+    OlmInboundGroupSession *igs;
+
+    if (rd->megolm_outbound &&
+            rd->megolm_messages_sent < MEGOLM_ROTATE_AFTER) {
+        return 0;
+    }
+
+    if (rd->megolm_outbound) {
+        olm_clear_outbound_group_session(rd->megolm_outbound);
+        g_free(rd->megolm_outbound);
+        rd->megolm_outbound = NULL;
+    }
+    g_free(rd->megolm_session_id);
+    rd->megolm_session_id = NULL;
+    if (rd->megolm_shared) {
+        g_hash_table_remove_all(rd->megolm_shared);
+    } else {
+        rd->megolm_shared = g_hash_table_new_full(g_str_hash, g_str_equal,
+                g_free, NULL);
+    }
+    rd->megolm_messages_sent = 0;
+
+    ogs = olm_outbound_group_session(g_malloc0(olm_outbound_group_session_size()));
+    random_len = olm_init_outbound_group_session_random_length(ogs);
+    random_buf = get_random(random_len);
+    if (!random_buf) {
+        g_free(ogs);
+        return -1;
+    }
+    if (olm_init_outbound_group_session(ogs, random_buf, random_len) ==
+            olm_error()) {
+        purple_debug_warning("matrixprpl", "%s: %s\n", __func__,
+                olm_outbound_group_session_last_error(ogs));
+        g_free(random_buf);
+        g_free(ogs);
+        return -1;
+    }
+    g_free(random_buf);
+
+    id_len = olm_outbound_group_session_id_length(ogs);
+    session_id = g_malloc0(id_len + 1);
+    if (olm_outbound_group_session_id(ogs, (uint8_t *)session_id, id_len) ==
+            olm_error()) {
+        purple_debug_warning("matrixprpl", "%s: session id: %s\n", __func__,
+                olm_outbound_group_session_last_error(ogs));
+        olm_clear_outbound_group_session(ogs);
+        g_free(ogs);
+        g_free(session_id);
+        return -1;
+    }
+
+    key_len = olm_outbound_group_session_key_length(ogs);
+    session_key = g_malloc0(key_len + 1);
+    if (olm_outbound_group_session_key(ogs, (uint8_t *)session_key, key_len) ==
+            olm_error()) {
+        purple_debug_warning("matrixprpl", "%s: session key: %s\n", __func__,
+                olm_outbound_group_session_last_error(ogs));
+        olm_clear_outbound_group_session(ogs);
+        g_free(ogs);
+        g_free(session_id);
+        g_free(session_key);
+        return -1;
+    }
+
+    igs = olm_inbound_group_session(g_malloc0(olm_inbound_group_session_size()));
+    if (olm_init_inbound_group_session(igs, (uint8_t *)session_key,
+            strlen(session_key)) == olm_error()) {
+        purple_debug_warning("matrixprpl",
+                "%s: inbound from outbound failed: %s\n", __func__,
+                olm_inbound_group_session_last_error(igs));
+        olm_clear_inbound_group_session(igs);
+        g_free(igs);
+        olm_clear_outbound_group_session(ogs);
+        g_free(ogs);
+        g_free(session_id);
+        g_free(session_key);
+        return -1;
+    }
+    store_inbound_megolm_session(conv, conn->e2e->curve25519_pubkey,
+            conn->user_id, session_id, conn->e2e->device_id, igs);
+    clear_mem(session_key, strlen(session_key));
+    g_free(session_key);
+
+    rd->megolm_outbound = ogs;
+    rd->megolm_session_id = session_id;
+    purple_debug_info("matrixprpl", "%s: created megolm session %s for %s\n",
+            __func__, session_id, conv->name);
+    return 0;
+}
+
+static JsonObject *build_room_key_plaintext(MatrixConnectionData *conn,
+        PurpleConversation *conv, MatrixE2EDevice *dev)
+{
+    MatrixE2ERoomData *rd = get_e2e_room_data(conv);
+    JsonObject *pt;
+    JsonObject *content;
+    JsonObject *keys;
+    JsonObject *recipient_keys;
+    size_t key_len;
+    gchar *session_key;
+
+    key_len = olm_outbound_group_session_key_length(rd->megolm_outbound);
+    session_key = g_malloc0(key_len + 1);
+    if (olm_outbound_group_session_key(rd->megolm_outbound,
+            (uint8_t *)session_key, key_len) == olm_error()) {
+        g_free(session_key);
+        return NULL;
+    }
+
+    content = json_object_new();
+    json_object_set_string_member(content, "algorithm", MEGOLM_ALGO);
+    json_object_set_string_member(content, "room_id", conv->name);
+    json_object_set_string_member(content, "session_id", rd->megolm_session_id);
+    json_object_set_string_member(content, "session_key", session_key);
+    clear_mem(session_key, strlen(session_key));
+    g_free(session_key);
+
+    keys = json_object_new();
+    json_object_set_string_member(keys, "ed25519", conn->e2e->ed25519_pubkey);
+    recipient_keys = json_object_new();
+    json_object_set_string_member(recipient_keys, "ed25519", dev->ed25519);
+
+    pt = json_object_new();
+    json_object_set_string_member(pt, "type", "m.room_key");
+    json_object_set_object_member(pt, "content", content);
+    json_object_set_string_member(pt, "sender", conn->user_id);
+    json_object_set_string_member(pt, "sender_device", conn->e2e->device_id);
+    json_object_set_object_member(pt, "keys", keys);
+    json_object_set_string_member(pt, "recipient", dev->user_id);
+    json_object_set_object_member(pt, "recipient_keys", recipient_keys);
+    return pt;
+}
+
+static void encrypt_send_free(MatrixEncryptSend *ctx)
+{
+    g_free(ctx->event_type);
+    g_free(ctx->txn_id);
+    if (ctx->content) {
+        json_object_unref(ctx->content);
+    }
+    g_free(ctx);
+}
+
+static void encrypt_send_error(MatrixConnectionData *conn, gpointer user_data,
+        const gchar *error_message)
+{
+    MatrixEncryptSend *ctx = user_data;
+    ctx->error_callback(conn, ctx->user_data, error_message);
+    encrypt_send_free(ctx);
+}
+
+static void encrypt_send_bad_response(MatrixConnectionData *conn,
+        gpointer user_data, int http_response_code, JsonNode *json_root)
+{
+    MatrixEncryptSend *ctx = user_data;
+    ctx->bad_response_callback(conn, ctx->user_data, http_response_code,
+            json_root);
+    encrypt_send_free(ctx);
+}
+
+static MatrixApiRequestData *finish_encrypted_room_send(MatrixEncryptSend *ctx)
+{
+    MatrixE2ERoomData *rd = get_e2e_room_data(ctx->conv);
+    JsonObject *plaintext_obj;
+    gchar *plaintext;
+    size_t message_len;
+    gchar *message;
+    size_t ret;
+    JsonObject *enc_content;
+    MatrixApiRequestData *fetch_data;
+
+    if (ensure_outbound_megolm(ctx->conv, ctx->conn)) {
+        encrypt_send_error(ctx->conn, ctx, "Failed to create Megolm session");
+        return NULL;
+    }
+
+    plaintext_obj = json_object_new();
+    json_object_set_string_member(plaintext_obj, "type", ctx->event_type);
+    json_object_set_object_member(plaintext_obj, "content",
+            json_object_ref(ctx->content));
+    json_object_set_string_member(plaintext_obj, "room_id", ctx->conv->name);
+    plaintext = json_object_to_cstring(plaintext_obj);
+    json_object_unref(plaintext_obj);
+
+    message_len = olm_group_encrypt_message_length(rd->megolm_outbound,
+            strlen(plaintext));
+    message = g_malloc0(message_len + 1);
+    ret = olm_group_encrypt(rd->megolm_outbound, (uint8_t *)plaintext,
+            strlen(plaintext), (uint8_t *)message, message_len);
+    clear_mem(plaintext, strlen(plaintext));
+    g_free(plaintext);
+    if (ret == olm_error()) {
+        g_free(message);
+        encrypt_send_error(ctx->conn, ctx, "Failed to encrypt room event");
+        return NULL;
+    }
+    message[ret] = '\0';
+    rd->megolm_messages_sent++;
+
+    enc_content = json_object_new();
+    json_object_set_string_member(enc_content, "algorithm", MEGOLM_ALGO);
+    json_object_set_string_member(enc_content, "sender_key",
+            ctx->conn->e2e->curve25519_pubkey);
+    json_object_set_string_member(enc_content, "device_id",
+            ctx->conn->e2e->device_id);
+    json_object_set_string_member(enc_content, "session_id",
+            rd->megolm_session_id);
+    json_object_set_string_member(enc_content, "ciphertext", message);
+    g_free(message);
+
+    fetch_data = matrix_api_send(ctx->conn, ctx->conv->name, "m.room.encrypted",
+            ctx->txn_id, enc_content, ctx->callback, ctx->error_callback,
+            ctx->bad_response_callback, ctx->user_data);
+    json_object_unref(enc_content);
+    encrypt_send_free(ctx);
+    return fetch_data;
+}
+
+static MatrixApiRequestData *share_megolm_and_send(MatrixEncryptSend *ctx)
+{
+    MatrixE2ERoomData *rd;
+    MatrixRoomMemberTable *members;
+    GList *member_list, *mp;
+    JsonObject *messages;
+    guint n_messages = 0;
+    gchar *txn;
+
+    if (ensure_outbound_megolm(ctx->conv, ctx->conn)) {
+        encrypt_send_error(ctx->conn, ctx, "Failed to create Megolm session");
+        return NULL;
+    }
+    rd = get_e2e_room_data(ctx->conv);
+    members = matrix_room_get_member_table(ctx->conv);
+    member_list = matrix_roommembers_get_active_members(members, FALSE);
+    messages = json_object_new();
+
+    for (mp = member_list; mp; mp = g_list_next(mp)) {
+        MatrixRoomMember *member = mp->data;
+        const gchar *user_id = matrix_roommember_get_user_id(member);
+        GHashTable *user_devs;
+        GHashTableIter dev_iter;
+        gpointer key, value;
+        JsonObject *user_messages = NULL;
+
+        if (!ctx->conn->e2e->devices) {
+            continue;
+        }
+        user_devs = g_hash_table_lookup(ctx->conn->e2e->devices, user_id);
+        if (!user_devs) {
+            continue;
+        }
+        g_hash_table_iter_init(&dev_iter, user_devs);
+        while (g_hash_table_iter_next(&dev_iter, &key, &value)) {
+            MatrixE2EDevice *dev = value;
+            gchar *share_key;
+            MatrixOlmSession *mos;
+            JsonObject *pt;
+            gchar *pt_str;
+            JsonObject *olm_content;
+
+            if (!strcmp(user_id, ctx->conn->user_id) &&
+                    !strcmp(dev->device_id, ctx->conn->e2e->device_id)) {
+                continue;
+            }
+            share_key = device_share_key(user_id, dev->device_id);
+            if (g_hash_table_lookup(rd->megolm_shared, share_key)) {
+                g_free(share_key);
+                continue;
+            }
+            mos = get_any_olm_session(ctx->conn, user_id, dev->curve25519);
+            if (!mos) {
+                purple_debug_info("matrixprpl",
+                        "%s: no olm session for %s/%s\n",
+                        __func__, user_id, dev->device_id);
+                g_free(share_key);
+                continue;
+            }
+            pt = build_room_key_plaintext(ctx->conn, ctx->conv, dev);
+            if (!pt) {
+                g_free(share_key);
+                continue;
+            }
+            pt_str = json_object_to_cstring(pt);
+            json_object_unref(pt);
+            olm_content = encrypt_olm_plaintext(ctx->conn, mos, dev->curve25519,
+                    pt_str);
+            clear_mem(pt_str, strlen(pt_str));
+            g_free(pt_str);
+            if (!olm_content) {
+                g_free(share_key);
+                continue;
+            }
+            if (!user_messages) {
+                user_messages = json_object_new();
+                json_object_set_object_member(messages, user_id, user_messages);
+            }
+            json_object_set_object_member(user_messages, dev->device_id,
+                    olm_content);
+            g_hash_table_insert(rd->megolm_shared, share_key,
+                    GINT_TO_POINTER(1));
+            n_messages++;
+        }
+    }
+    g_list_free(member_list);
+
+    if (!n_messages) {
+        json_object_unref(messages);
+        return finish_encrypted_room_send(ctx);
+    }
+
+    txn = g_strdup_printf("%s-keyshare", ctx->txn_id);
+    {
+        MatrixApiRequestData *fetch_data;
+        fetch_data = matrix_api_send_to_device(ctx->conn, "m.room.encrypted",
+                txn, messages, encrypt_keyshare_complete,
+                encrypt_send_error, encrypt_send_bad_response, ctx);
+        json_object_unref(messages);
+        g_free(txn);
+        return fetch_data;
+    }
+}
+
+static MatrixApiRequestData *claim_missing_otks_and_send(MatrixEncryptSend *ctx)
+{
+    MatrixRoomMemberTable *members;
+    GList *member_list, *mp;
+    JsonObject *otk_claim;
+    guint n_claims = 0;
+
+    members = matrix_room_get_member_table(ctx->conv);
+    member_list = matrix_roommembers_get_active_members(members, FALSE);
+    otk_claim = json_object_new();
+
+    for (mp = member_list; mp; mp = g_list_next(mp)) {
+        MatrixRoomMember *member = mp->data;
+        const gchar *user_id = matrix_roommember_get_user_id(member);
+        GHashTable *user_devs;
+        GHashTableIter dev_iter;
+        gpointer key, value;
+        JsonObject *user_claim = NULL;
+
+        if (!ctx->conn->e2e->devices) {
+            continue;
+        }
+        user_devs = g_hash_table_lookup(ctx->conn->e2e->devices, user_id);
+        if (!user_devs) {
+            continue;
+        }
+        g_hash_table_iter_init(&dev_iter, user_devs);
+        while (g_hash_table_iter_next(&dev_iter, &key, &value)) {
+            MatrixE2EDevice *dev = value;
+            if (!strcmp(user_id, ctx->conn->user_id) &&
+                    !strcmp(dev->device_id, ctx->conn->e2e->device_id)) {
+                continue;
+            }
+            if (get_any_olm_session(ctx->conn, user_id, dev->curve25519)) {
+                continue;
+            }
+            if (!user_claim) {
+                user_claim = json_object_new();
+                json_object_set_object_member(otk_claim, user_id, user_claim);
+            }
+            json_object_set_string_member(user_claim, dev->device_id,
+                    "signed_curve25519");
+            n_claims++;
+        }
+    }
+    g_list_free(member_list);
+
+    if (!n_claims || ctx->claimed_otks) {
+        json_object_unref(otk_claim);
+        return share_megolm_and_send(ctx);
+    }
+    ctx->claimed_otks = TRUE;
+
+    return matrix_api_claim_keys(ctx->conn, otk_claim,
+            encrypt_send_continue_cb,
+            encrypt_send_error, encrypt_send_bad_response, ctx);
+}
+
+static void handle_claimed_otks(MatrixConnectionData *conn, JsonObject *root)
+{
+    JsonObject *one_time_keys;
+    JsonObjectIter user_iter;
+    const gchar *user_id;
+    JsonNode *user_node;
+
+    one_time_keys = matrix_json_object_get_object_member(root, "one_time_keys");
+    if (!one_time_keys) {
+        return;
+    }
+    json_object_iter_init(&user_iter, one_time_keys);
+    while (json_object_iter_next(&user_iter, &user_id, &user_node)) {
+        JsonObject *devices = matrix_json_node_get_object(user_node);
+        JsonObjectIter dev_iter;
+        const gchar *device_id;
+        JsonNode *dev_node;
+        GHashTable *user_devs;
+        MatrixE2EDevice *dev;
+
+        if (!devices || !conn->e2e->devices) {
+            continue;
+        }
+        user_devs = g_hash_table_lookup(conn->e2e->devices, user_id);
+        json_object_iter_init(&dev_iter, devices);
+        while (json_object_iter_next(&dev_iter, &device_id, &dev_node)) {
+            JsonObject *keys_obj = matrix_json_node_get_object(dev_node);
+            JsonObjectIter key_iter;
+            const gchar *key_name;
+            JsonNode *key_node;
+
+            if (!user_devs || !keys_obj) {
+                continue;
+            }
+            dev = g_hash_table_lookup(user_devs, device_id);
+            if (!dev) {
+                continue;
+            }
+            json_object_iter_init(&key_iter, keys_obj);
+            while (json_object_iter_next(&key_iter, &key_name, &key_node)) {
+                JsonObject *otk = matrix_json_node_get_object(key_node);
+                const gchar *key;
+                if (!g_str_has_prefix(key_name, "signed_curve25519:")) {
+                    continue;
+                }
+                key = matrix_json_object_get_string_member(otk, "key");
+                if (!key) {
+                    continue;
+                }
+                if (!verify_signed_json(dev->ed25519, user_id, device_id, otk)) {
+                    purple_debug_info("matrixprpl",
+                            "%s: bad OTK signature %s/%s\n",
+                            __func__, user_id, device_id);
+                    continue;
+                }
+                create_outbound_olm_session(conn, dev, key);
+                break;
+            }
+        }
+    }
+}
+
+static JsonObject *build_device_query_for_room(PurpleConversation *conv)
+{
+    MatrixRoomMemberTable *members;
+    GList *member_list, *mp;
+    JsonObject *device_keys;
+
+    members = matrix_room_get_member_table(conv);
+    member_list = matrix_roommembers_get_active_members(members, FALSE);
+    device_keys = json_object_new();
+    for (mp = member_list; mp; mp = g_list_next(mp)) {
+        MatrixRoomMember *member = mp->data;
+        const gchar *user_id = matrix_roommember_get_user_id(member);
+        json_object_set_array_member(device_keys, user_id, json_array_new());
+    }
+    g_list_free(member_list);
+    return device_keys;
+}
+
+static void encrypt_send_continue_cb(MatrixConnectionData *conn,
+        gpointer user_data, JsonNode *json_root, const char *body,
+        size_t body_len, const char *content_type)
+{
+    MatrixEncryptSend *ctx = user_data;
+    PurpleConversation *conv = ctx->conv;
+    MatrixApiRequestData *next;
+    JsonObject *root = matrix_json_node_get_object(json_root);
+
+    (void)body;
+    (void)body_len;
+    (void)content_type;
+
+    if (root && matrix_json_object_get_object_member(root, "device_keys")) {
+        handle_device_key_query(conn, root);
+    }
+    if (root && matrix_json_object_get_object_member(root, "one_time_keys")) {
+        handle_claimed_otks(conn, root);
+    }
+
+    /* encrypt_send_continue may synchronously finish the send, in which case
+     * ctx (and hence ctx->conv) has been freed by the time it returns; we
+     * saved conv above so that we can still update the active send.
+     */
+    next = encrypt_send_continue(ctx);
+    purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND, next);
+}
+
+/* After each async step, decide whether we still need keys or can encrypt. */
+static MatrixApiRequestData *encrypt_send_continue(MatrixEncryptSend *ctx)
+{
+    MatrixRoomMemberTable *members;
+    GList *member_list, *mp;
+    gboolean need_query = FALSE;
+
+    if (!ctx->conn->e2e || !ctx->conn->e2e->oa) {
+        encrypt_send_error(ctx->conn, ctx, "E2E is not initialised");
+        return NULL;
+    }
+
+    members = matrix_room_get_member_table(ctx->conv);
+    member_list = matrix_roommembers_get_active_members(members, FALSE);
+    /* Only query once per send; otherwise a member with no e2e capable
+     * devices would cause us to keep querying forever.
+     */
+    if (!ctx->queried_devices) {
+        for (mp = member_list; mp; mp = g_list_next(mp)) {
+            MatrixRoomMember *member = mp->data;
+            const gchar *user_id = matrix_roommember_get_user_id(member);
+            if (!ctx->conn->e2e->devices ||
+                    !g_hash_table_lookup(ctx->conn->e2e->devices, user_id)) {
+                need_query = TRUE;
+                break;
+            }
+        }
+    }
+    g_list_free(member_list);
+
+    if (need_query) {
+        JsonObject *query = build_device_query_for_room(ctx->conv);
+        MatrixApiRequestData *fetch_data;
+        ctx->queried_devices = TRUE;
+        fetch_data = matrix_api_query_keys(ctx->conn, query,
+                encrypt_send_continue_cb, encrypt_send_error,
+                encrypt_send_bad_response, ctx);
+        json_object_unref(query);
+        return fetch_data;
+    }
+
+    return claim_missing_otks_and_send(ctx);
+}
+
+/* Called when the m.room_key to-device messages have been sent. Once the
+ * keys are on their way we can send the actual encrypted room event.
+ */
+static void encrypt_keyshare_complete(MatrixConnectionData *conn,
+        gpointer user_data, JsonNode *json_root, const char *body,
+        size_t body_len, const char *content_type)
+{
+    MatrixEncryptSend *ctx = user_data;
+    PurpleConversation *conv = ctx->conv;
+    MatrixApiRequestData *next;
+
+    (void)conn;
+    (void)json_root;
+    (void)body;
+    (void)body_len;
+    (void)content_type;
+
+    /* ctx is freed by finish_encrypted_room_send, so use the saved conv. */
+    next = finish_encrypted_room_send(ctx);
+    purple_conversation_set_data(conv, PURPLE_CONV_DATA_ACTIVE_SEND, next);
+}
+
+/* Public entry point for sending a room event. If the room is not encrypted
+ * this simply forwards to matrix_api_send; otherwise it walks through the
+ * steps needed to encrypt an event (query device keys, claim one-time keys,
+ * share the megolm session, then encrypt and send).
+ */
+MatrixApiRequestData *matrix_e2e_send(MatrixConnectionData *conn,
+        PurpleConversation *conv, const gchar *event_type,
+        const gchar *txn_id, struct _JsonObject *content,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    MatrixEncryptSend *ctx;
+
+    if (!matrix_e2e_conversation_is_encrypted(conv)) {
+        return matrix_api_send(conn, conv->name, event_type, txn_id, content,
+                callback, error_callback, bad_response_callback, user_data);
+    }
+
+    ctx = g_new0(MatrixEncryptSend, 1);
+    ctx->conn = conn;
+    ctx->conv = conv;
+    ctx->event_type = g_strdup(event_type);
+    ctx->txn_id = g_strdup(txn_id);
+    ctx->content = json_object_ref(content);
+    ctx->callback = callback;
+    ctx->error_callback = error_callback;
+    ctx->bad_response_callback = bad_response_callback;
+    ctx->user_data = user_data;
+
+    purple_debug_info("matrixprpl", "%s: encrypting %s in %s\n",
+            __func__, event_type, conv->name);
+    return encrypt_send_continue(ctx);
+}
+
 /* Find if we already have an OlmSession for this sender/sender_key somewhere
  * that this body matches.
  */
@@ -302,24 +1287,30 @@ static MatrixOlmSession *find_olm_session(MatrixConnectionData *conn,
     while (cur_entry) {
         if (!strcmp(sender_id, cur_entry->sender_id) &&
             !strcmp(sender_key, cur_entry->sender_key)) {
-            size_t ret;
-            char *body_double = g_strdup(body);
             have_sender = TRUE;
-            ret = olm_matches_inbound_session(cur_entry->session, body_double,
-                                              strlen(body));
-            g_free(body_double);
-            if (ret == 1) {
-                purple_debug_info("matrixprpl",
-                                  "%s: Found matching session for %s/%s\n",
-                                  __func__, sender_id, sender_key);
-                return cur_entry;
-            }
-            if (ret == olm_error()) {
-                purple_debug_warning("matrixprpl",
-                        "%s: Error while checking session %p for "
-                        "match with %s/%s: %s\n", __func__, cur_entry->session,
-                        sender_id, sender_key,
-                        olm_session_last_error(cur_entry->session));
+            /* An empty body means "just make sure everything is loaded"; it
+             * is used when the caller doesn't know which session a normal
+             * olm message belongs to (those don't identify their session).
+             */
+            if (body && body[0]) {
+                size_t ret;
+                char *body_double = g_strdup(body);
+                ret = olm_matches_inbound_session(cur_entry->session,
+                                                  body_double, strlen(body));
+                g_free(body_double);
+                if (ret == 1) {
+                    purple_debug_info("matrixprpl",
+                                      "%s: Found matching session for %s/%s\n",
+                                      __func__, sender_id, sender_key);
+                    return cur_entry;
+                }
+                if (ret == olm_error()) {
+                    purple_debug_warning("matrixprpl",
+                            "%s: Error while checking session %p for "
+                            "match with %s/%s: %s\n", __func__,
+                            cur_entry->session, sender_id, sender_key,
+                            olm_session_last_error(cur_entry->session));
+                }
             }
         }
         cur_entry = cur_entry->next;
@@ -386,8 +1377,12 @@ static MatrixOlmSession *find_olm_session(MatrixConnectionData *conn,
             cur_entry->session = session;
             cur_entry->unique = sqlite3_column_int64(dbstmt, 1);
             *chain = cur_entry;
+            /* Advance the pointer so the next loaded session is appended
+             * rather than replacing this one.
+             */
+            chain = &(cur_entry->next);
 
-            if (!result) {
+            if (!result && body && body[0]) {
                 char *body_double = g_strdup(body);
                 /* But is this the session we're after ? */
                 ret = olm_matches_inbound_session(session,
@@ -934,8 +1929,16 @@ void matrix_e2e_handle_sync_key_counts(PurpleConnection *pc, JsonObject *count_o
     gboolean need_to_send = force_send;
     gboolean valid_counts = FALSE;
     MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
-    size_t max_keys = olm_account_max_number_of_one_time_keys(conn->e2e->oa);
-    size_t to_create = max_keys;
+    size_t max_keys;
+    size_t to_create;
+
+    if (!conn->e2e || !conn->e2e->oa) {
+        /* E2E never got initialised (e.g. no device id stored) */
+        return;
+    }
+
+    max_keys = olm_account_max_number_of_one_time_keys(conn->e2e->oa);
+    to_create = max_keys;
 
     if (!force_send) {
         JsonObjectIter iter;
@@ -1037,6 +2040,69 @@ static int ensure_table(MatrixConnectionData *conn, const char *check, const cha
 
     return 0;
 }
+
+/* Older versions of the plugin created the olmsessions table with a primary
+ * key on (sender_name, sender_key), which only permits a single olm session
+ * per device. Rebuild the table (preserving existing rows) if we find that
+ * old schema so that multiple sessions can be stored.
+ * Returns 0 on success (including "nothing to do"), -1 on error.
+ */
+static int migrate_e2e_db(MatrixConnectionData *conn)
+{
+    PurpleConnection *pc = conn->pc;
+    sqlite3_stmt *dbstmt = NULL;
+    gboolean has_id_column = FALSE;
+    const char *inspect = "PRAGMA table_info(olmsessions)";
+    const char *migrate =
+        "BEGIN;"
+        "CREATE TABLE olmsessions_new ("
+        "    id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "    sender_name text, sender_key text, session_pickle text);"
+        "INSERT INTO olmsessions_new (sender_name, sender_key, session_pickle)"
+        "    SELECT sender_name, sender_key, session_pickle FROM olmsessions;"
+        "DROP TABLE olmsessions;"
+        "ALTER TABLE olmsessions_new RENAME TO olmsessions;"
+        "COMMIT;";
+    gchar *errmsg = NULL;
+    int ret;
+
+    ret = sqlite3_prepare_v2(conn->e2e->db, inspect, -1, &dbstmt, NULL);
+    if (ret != SQLITE_OK || !dbstmt) {
+        purple_connection_error_reason(pc,
+            PURPLE_CONNECTION_ERROR_OTHER_ERROR,
+            "Failed to inspect e2e db sessions table");
+        return -1;
+    }
+    while (sqlite3_step(dbstmt) == SQLITE_ROW) {
+        /* Column 1 of PRAGMA table_info is the column name */
+        const gchar *name = (const gchar *)sqlite3_column_text(dbstmt, 1);
+        if (name && !strcmp(name, "id")) {
+            has_id_column = TRUE;
+            break;
+        }
+    }
+    sqlite3_finalize(dbstmt);
+
+    if (has_id_column) {
+        /* Already using the new schema */
+        return 0;
+    }
+
+    purple_debug_info("matrixprpl",
+            "%s: migrating olmsessions to multi-session schema\n", __func__);
+
+    ret = sqlite3_exec(conn->e2e->db, migrate, NULL, NULL, &errmsg);
+    if (ret != SQLITE_OK) {
+        purple_debug_warning("matrixprpl", "%s: migration failed: %s\n",
+                __func__, errmsg ? errmsg : "(unknown)");
+        sqlite3_exec(conn->e2e->db, "ROLLBACK;", NULL, NULL, NULL);
+        sqlite3_free(errmsg);
+        return -1;
+    }
+
+    return 0;
+}
+
 static int open_e2e_db(MatrixConnectionData *conn)
 {
     PurpleConnection *pc = conn->pc;
@@ -1061,10 +2127,23 @@ static int open_e2e_db(MatrixConnectionData *conn)
 
     ret = ensure_table(conn,
                  "SELECT name FROM sqlite_master WHERE type='table' AND name='olmsessions'",
-                 "CREATE TABLE olmsessions (sender_name text, sender_key text,"
-                 "                          session_pickle text,"
-                 "                          PRIMARY KEY (sender_name, sender_key))");
+                 /* Use an auto-increment rowid rather than a primary key on
+                  * (sender_name, sender_key): a peer may create a new olm
+                  * session for us at any time (e.g. when it rotates) and we
+                  * need to be able to remember more than one session per
+                  * device.
+                  */
+                 "CREATE TABLE olmsessions ("
+                 "                          id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                 "                          sender_name text, sender_key text,"
+                 "                          session_pickle text)");
 
+    if (ret) {
+        close_e2e_db(conn);
+        return ret;
+    }
+
+    ret = migrate_e2e_db(conn);
     if (ret) {
         close_e2e_db(conn);
         return ret;
@@ -1149,8 +2228,8 @@ int matrix_e2e_get_device_keys(MatrixConnectionData *conn, const gchar *device_i
     /* Add 'algorithms' array - is there a way to get libolm to tell us the list of what's supported */
     /* the output of olm_account_identity_keys isn't quite right for it */
     JsonArray *algorithms = json_array_new();
-    json_array_add_string_element(algorithms, "m.olm.curve25519-aes-sha256");
-    json_array_add_string_element(algorithms, "m.megolm.v1.aes-sha");
+    json_array_add_string_element(algorithms, OLM_ALGO);
+    json_array_add_string_element(algorithms, MEGOLM_ALGO);
     json_object_set_array_member(json_dev_keys, "algorithms", algorithms);
 
     /* Add 'keys' entry */
@@ -1216,7 +2295,17 @@ void matrix_e2e_cleanup_conversation(PurpleConversation *conv)
     MatrixE2ERoomData *result = purple_conversation_get_data(conv,
                                                      PURPLE_CONV_E2E_STATE);
     if (result) {
-        g_hash_table_destroy(result->megolm_sessions_inbound);
+        if (result->megolm_sessions_inbound) {
+            g_hash_table_destroy(result->megolm_sessions_inbound);
+        }
+        if (result->megolm_outbound) {
+            olm_clear_outbound_group_session(result->megolm_outbound);
+            g_free(result->megolm_outbound);
+        }
+        g_free(result->megolm_session_id);
+        if (result->megolm_shared) {
+            g_hash_table_destroy(result->megolm_shared);
+        }
         g_free(result);
         purple_conversation_set_data(conv, PURPLE_CONV_E2E_STATE, NULL);
     }
@@ -1232,10 +2321,18 @@ void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
     }
     if (conn->e2e) {
         close_e2e_db(conn);
-        g_hash_table_destroy(conn->e2e->olm_session_hash);
+        if (conn->e2e->olm_session_hash) {
+            g_hash_table_destroy(conn->e2e->olm_session_hash);
+        }
+        if (conn->e2e->devices) {
+            g_hash_table_destroy(conn->e2e->devices);
+        }
         g_free(conn->e2e->curve25519_pubkey);
         g_free(conn->e2e->ed25519_pubkey);
-        g_free(conn->e2e->oa);
+        if (conn->e2e->oa) {
+            olm_clear_account(conn->e2e->oa);
+            g_free(conn->e2e->oa);
+        }
         g_free(conn->e2e->device_id);
         g_free(conn->e2e);
         conn->e2e = NULL;
@@ -1402,6 +2499,95 @@ out:
     return ret;
 }
 
+/* Restore a session to a previously taken pickle, undoing any state change
+ * that a failed decrypt attempt might have made. `pickle` must have come from
+ * olm_pickle_session() on this session.
+ */
+static void olm_restore_session(OlmSession *session, const gchar *pickle,
+        size_t pickle_len)
+{
+    gchar *restore = g_strdup(pickle);
+    olm_clear_session(session);
+    if (olm_unpickle_session(session, "!", 1, restore, pickle_len) ==
+            olm_error()) {
+        purple_debug_warning("matrixprpl",
+                "%s: Failed to restore session: %s\n", __func__,
+                olm_session_last_error(session));
+    }
+    clear_mem(restore, pickle_len);
+    g_free(restore);
+}
+
+/* Try to decrypt a normal (type 1) olm message with the given session.
+ *
+ * We cannot tell up-front whether a normal message belongs to a particular
+ * session (unlike prekey messages, they don't identify it), so the caller may
+ * have to try several. To make that safe we take a pickle of the session
+ * first and restore it if the attempt fails, so a session that doesn't own
+ * the message is left exactly as it was.
+ *
+ * Returns a newly allocated NUL-terminated plaintext (and advances the
+ * session) on success, or NULL on failure (leaving the session unchanged).
+ */
+static gchar *olm_try_decrypt_normal(OlmSession *session, const gchar *body,
+        size_t *plaintext_length)
+{
+    size_t pickle_alloc_len;
+    size_t pickle_len;
+    gchar *pickle;
+    gchar *body_copy;
+    gchar *plaintext;
+    size_t max_len;
+    size_t pt_len;
+
+    pickle_alloc_len = olm_pickle_session_length(session);
+    pickle = g_malloc(pickle_alloc_len + 1);
+    pickle_len = olm_pickle_session(session, "!", 1, pickle,
+            pickle_alloc_len);
+    if (pickle_len == olm_error()) {
+        purple_debug_warning("matrixprpl",
+                "%s: Failed to pickle session: %s\n", __func__,
+                olm_session_last_error(session));
+        g_free(pickle);
+        return NULL;
+    }
+    pickle[pickle_len] = '\0';
+
+    body_copy = g_strdup(body);
+    max_len = olm_decrypt_max_plaintext_length(session, 1, body_copy,
+            strlen(body_copy));
+    g_free(body_copy);
+    if (max_len == olm_error()) {
+        olm_restore_session(session, pickle, pickle_len);
+        clear_mem(pickle, pickle_len);
+        g_free(pickle);
+        return NULL;
+    }
+
+    plaintext = g_malloc0(max_len + 1);
+    body_copy = g_strdup(body);
+    pt_len = olm_decrypt(session, 1, body_copy, strlen(body_copy),
+            plaintext, max_len);
+    g_free(body_copy);
+    if (pt_len == olm_error() || pt_len >= max_len) {
+        purple_debug_info("matrixprpl",
+                "%s: Session %p didn't decrypt message: %s\n", __func__,
+                session, olm_session_last_error(session));
+        olm_restore_session(session, pickle, pickle_len);
+        clear_mem(plaintext, max_len);
+        g_free(plaintext);
+        clear_mem(pickle, pickle_len);
+        g_free(pickle);
+        return NULL;
+    }
+
+    clear_mem(pickle, pickle_len);
+    g_free(pickle);
+    plaintext[pt_len] = '\0';
+    *plaintext_length = pt_len;
+    return plaintext;
+}
+
 /*
  * See:
  * https://matrix.org/docs/guides/e2e_implementation.html#m-olm-v1-curve25519-aes-sha2
@@ -1520,8 +2706,54 @@ static void decrypt_olm(PurpleConnection *pc, MatrixConnectionData *conn, JsonOb
         update_olm_session(conn, mos);
         plaintext[pt_len] = '\0';
         handle_decrypted_olm(pc, conn, cevent_sender, sender_key, plaintext);
+    } else if (type == 1) {
+        /* A normal olm message sent over a session we already have. Unlike
+         * prekey messages, normal messages don't identify which session they
+         * were sent with, so try each session we hold for this sender until
+         * one decrypts it. olm_try_decrypt_normal() pickles and, on failure,
+         * restores the session around each attempt, so a session which
+         * doesn't own the message is left exactly as it was.
+         */
+        const gchar *cevent_body;
+        MatrixOlmSession *candidate;
+
+        cevent_body = matrix_json_object_get_string_member(our_ciphertext,
+                                                           "body");
+        if (!cevent_body) {
+            purple_debug_info("matrixprpl", "%s: No body in olm message\n",
+                              __func__);
+            goto err;
+        }
+
+        candidate = get_any_olm_session(conn, cevent_sender, sender_key);
+        for (; candidate; candidate = candidate->next) {
+            size_t candidate_len = 0;
+
+            plaintext = olm_try_decrypt_normal(candidate->session,
+                                               cevent_body, &candidate_len);
+            if (!plaintext) {
+                /* Not the session this message belongs to - try the next */
+                continue;
+            }
+
+            /* Found the session this message belongs to */
+            max_plaintext_len = candidate_len;
+            update_olm_session(conn, candidate);
+            purple_debug_info("matrixprpl",
+                    "%s: Decrypted normal olm message from %s\n",
+                    __func__, cevent_sender);
+            handle_decrypted_olm(pc, conn, cevent_sender, sender_key,
+                                 plaintext);
+            break;
+        }
+        if (!plaintext) {
+            purple_debug_info("matrixprpl",
+                    "%s: No session matched normal olm message from %s\n",
+                    __func__, cevent_sender);
+        }
     } else {
-        purple_debug_info("matrixprpl", "%s: Type %zd olm\n", __func__, type);
+        purple_debug_info("matrixprpl", "%s: Unknown olm message type %zd\n",
+                          __func__, type);
     }
     if (plaintext) {
         clear_mem(plaintext, max_plaintext_len);
@@ -1552,6 +2784,13 @@ void matrix_e2e_decrypt_d2d(PurpleConnection *pc, JsonObject *cevent)
     MatrixConnectionData *conn = purple_connection_get_protocol_data(pc);
     const gchar *cevent_type;
     const gchar *cevent_sender;
+
+    if (!conn->e2e || !conn->e2e->oa) {
+        purple_debug_info("matrixprpl",
+                "%s: No e2e data, can't decrypt d2d event\n", __func__);
+        return;
+    }
+
     cevent_type = matrix_json_object_get_string_member(cevent, "type");
     cevent_sender = matrix_json_object_get_string_member(cevent, "sender");
     purple_debug_info("matrixprpl", "%s: %s from %s\n", __func__, cevent_type,
@@ -1890,6 +3129,19 @@ void matrix_e2e_cleanup_connection(MatrixConnectionData *conn)
 void matrix_e2e_handle_sync_key_counts(PurpleConnection *pc, JsonObject *count_object,
                                        gboolean force_send)
 {
+}
+
+MatrixApiRequestData *matrix_e2e_send(MatrixConnectionData *conn,
+        PurpleConversation *conv, const gchar *event_type,
+        const gchar *txn_id, struct _JsonObject *content,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data)
+{
+    /* Without crypto support we can only send the event in the clear. */
+    return matrix_api_send(conn, conv->name, event_type, txn_id, content,
+            callback, error_callback, bad_response_callback, user_data);
 }
 
 void matrix_e2e_cleanup_conversation(PurpleConversation *conv)

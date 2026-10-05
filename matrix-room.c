@@ -83,7 +83,7 @@ static const size_t purple_max_media_size=640*480*3;
 /**
  * Get the member table for a room
  */
-static MatrixRoomMemberTable *matrix_room_get_member_table(
+MatrixRoomMemberTable *matrix_room_get_member_table(
         PurpleConversation *conv)
 {
     return purple_conversation_get_data(conv, PURPLE_CONV_MEMBER_TABLE);
@@ -93,7 +93,7 @@ static MatrixRoomMemberTable *matrix_room_get_member_table(
 /**
  * Get the state table for a room
  */
-static MatrixRoomStateEventTable *matrix_room_get_state_table(
+MatrixRoomStateEventTable *matrix_room_get_state_table(
         PurpleConversation *conv)
 {
     return purple_conversation_get_data(conv, PURPLE_CONV_DATA_STATE);
@@ -496,7 +496,7 @@ static void _image_upload_complete(MatrixConnectionData *ma,
 
     json_object_set_string_member(sied->event->content, "url", content_uri);
 
-    fetch_data = matrix_api_send(ma, sied->conv->name, sied->event->event_type,
+    fetch_data = matrix_e2e_send(ma, sied->conv, sied->event->event_type,
              sied->event->txn_id, sied->event->content, _event_send_complete,
              _event_send_error, _event_send_bad_response, sied->conv);
     purple_conversation_set_data(sied->conv, PURPLE_CONV_DATA_ACTIVE_SEND,
@@ -932,7 +932,7 @@ static void _send_queued_event(PurpleConversation *conv)
         purple_debug_info("matrixprpl", "Sending %s with txn id %s\n",
                 event->event_type, event->txn_id);
 
-        fetch_data = matrix_api_send(acct, conv->name, event->event_type,
+        fetch_data = matrix_e2e_send(acct, conv, event->event_type,
                 event->txn_id, event->content, _event_send_complete,
                 _event_send_error, _event_send_bad_response, conv);
     }

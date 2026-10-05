@@ -407,6 +407,48 @@ MatrixApiRequestData *matrix_api_upload_keys(MatrixConnectionData *conn,
         MatrixApiBadResponseCallback bad_response_callback,
         gpointer user_data);
 
+/**
+ * e2e: Query device keys for one or more users
+ *
+ * @param device_keys  Object mapping user ids to arrays of device ids (empty
+ *                     array means all devices). Caller retains ownership.
+ */
+MatrixApiRequestData *matrix_api_query_keys(MatrixConnectionData *conn,
+        struct _JsonObject *device_keys,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
+/**
+ * e2e: Claim one-time keys for devices
+ *
+ * @param one_time_keys  Object mapping user id -> device id -> algorithm.
+ *                       Caller retains ownership.
+ */
+MatrixApiRequestData *matrix_api_claim_keys(MatrixConnectionData *conn,
+        struct _JsonObject *one_time_keys,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
+/**
+ * e2e: Send to-device messages
+ *
+ * @param event_type  Event type (e.g. "m.room.encrypted")
+ * @param txn_id      Unique transaction id
+ * @param messages    Object mapping user id -> device id -> event content.
+ *                    Caller retains ownership.
+ */
+MatrixApiRequestData *matrix_api_send_to_device(MatrixConnectionData *conn,
+        const gchar *event_type, const gchar *txn_id,
+        struct _JsonObject *messages,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
+
 #if 0
 /**
  * Get the current state of a room

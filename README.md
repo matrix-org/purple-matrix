@@ -31,7 +31,8 @@ The following are not yet supported:
 
 The following are in progress:
  * End-To-End encryption via Olm ([ticket](https://github.com/matrix-org/purple-matrix/issues/18))
-   * [Decyption is supported but not encryption](https://github.com/matrix-org/purple-matrix/issues/18#issuecomment-410336278)
+   * Encryption and decryption of room events (Megolm) and device-to-device
+     messages (Olm) are supported.
 
 The plugin requires a matrix homeserver supporting client-server API r0.0.0 Synapse
 v0.12.0-rc1 or later is sufficient.

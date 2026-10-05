@@ -21,6 +21,7 @@
 
 #include <json-glib/json-glib.h>
 #include "matrix-connection.h"
+#include "matrix-api.h"
 
 typedef struct _MatrixE2EData MatrixE2EData;
 typedef struct _PurpleConversation PurpleConversation;
@@ -37,5 +38,13 @@ gboolean matrix_e2e_parse_media_decrypt_info(MatrixMediaCryptInfo **crypt,
 const char *matrix_e2e_decrypt_media(MatrixMediaCryptInfo *crypt,
                                      size_t inlen, const void *in, void **out);
 void matrix_e2e_handle_sync_key_counts(struct _PurpleConnection *pc, struct _JsonObject *count_object, gboolean force_send);
+gboolean matrix_e2e_conversation_is_encrypted(PurpleConversation *conv);
+MatrixApiRequestData *matrix_e2e_send(MatrixConnectionData *conn,
+        PurpleConversation *conv, const gchar *event_type,
+        const gchar *txn_id, struct _JsonObject *content,
+        MatrixApiCallback callback,
+        MatrixApiErrorCallback error_callback,
+        MatrixApiBadResponseCallback bad_response_callback,
+        gpointer user_data);
 
 #endif
