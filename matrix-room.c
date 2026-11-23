@@ -474,6 +474,8 @@ struct SendImageEventData {
  * We get a 'content_uri' identifying the uploaded file, and that's what
  * we put in the event.
  */
+static const char *type_guess(PurpleStoredImage *image);
+
 static void _image_upload_complete(MatrixConnectionData *ma,
       gpointer user_data, JsonNode *json_root,
       const char *raw_body, size_t raw_body_len, const char *content_type)
@@ -495,6 +497,13 @@ static void _image_upload_complete(MatrixConnectionData *ma,
     }
 
     json_object_set_string_member(sied->event->content, "url", content_uri);
+    if (image != NULL) {
+        JsonObject *info = json_object_new();
+        json_object_set_string_member(info, "mimetype", type_guess(image));
+        json_object_set_int_member(info, "size",
+                purple_imgstore_get_size(image));
+        json_object_set_object_member(sied->event->content, "info", info);
+    }
 
     fetch_data = matrix_api_send(ma, sied->conv->name, sied->event->event_type,
              sied->event->txn_id, sied->event->content, _event_send_complete,
@@ -550,7 +559,7 @@ static const char *type_guess(PurpleStoredImage *image)
     } else if (strcmp(ext, "jpg") == 0) {
       return "image/jpeg";
     } else if (strcmp(ext, "tif") == 0) {
-      return "image/tif";
+      return "image/tiff";
     } else {
       return "image/x-icon"; /* or something... */
     }
